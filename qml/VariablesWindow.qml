@@ -4,12 +4,11 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 // Local variables table: collections on the left, variables x modes on the right.
-Window {
+ThemedWindow {
     id: root
     title: qsTr("Local variables")
     width: 900
     height: 560
-    color: Theme.panel
     flags: Qt.Dialog
     property int collectionIndex: 0
     readonly property var lib: editor.library

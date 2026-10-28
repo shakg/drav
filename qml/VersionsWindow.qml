@@ -4,12 +4,11 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 // Version history: save named versions, restore older ones.
-Window {
+ThemedWindow {
     id: root
     title: qsTr("Version history")
     width: 380
     height: 480
-    color: Theme.panel
     flags: Qt.Dialog
     property var list: []
     function refresh() { list = editor.versions() }

@@ -20,11 +20,11 @@ ColumnLayout {
         title: qsTr("Properties")
         showAdd: true
         onAdd: addMenu.popup()
-        Menu {
+        AppMenu {
             id: addMenu
-            MenuItem { text: qsTr("Boolean"); onTriggered: editor.addComponentProp("BOOLEAN", "") }
-            MenuItem { text: qsTr("Text"); onTriggered: editor.addComponentProp("TEXT", "") }
-            MenuItem { text: qsTr("Instance swap"); onTriggered: editor.addComponentProp("INSTANCE_SWAP", "") }
+            AppMenuItem { text: qsTr("Boolean"); onTriggered: editor.addComponentProp("BOOLEAN", "") }
+            AppMenuItem { text: qsTr("Text"); onTriggered: editor.addComponentProp("TEXT", "") }
+            AppMenuItem { text: qsTr("Instance swap"); onTriggered: editor.addComponentProp("INSTANCE_SWAP", "") }
         }
         Repeater {
             model: root.defs || []

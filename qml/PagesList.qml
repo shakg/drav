@@ -56,11 +56,11 @@ ColumnLayout {
                 }
                 onDoubleClicked: { edit.text = pageRow.modelData.name; edit.visible = true; edit.forceActiveFocus(); edit.selectAll() }
             }
-            Menu {
+            AppMenu {
                 id: pageMenu
-                MenuItem { text: qsTr("Rename"); onTriggered: { edit.text = pageRow.modelData.name; edit.visible = true; edit.forceActiveFocus() } }
-                MenuItem { text: qsTr("Duplicate"); onTriggered: editor.duplicatePage(pageRow.modelData.id) }
-                MenuItem { text: qsTr("Delete"); enabled: editor.pages.length > 1; onTriggered: editor.deletePage(pageRow.modelData.id) }
+                AppMenuItem { text: qsTr("Rename"); onTriggered: { edit.text = pageRow.modelData.name; edit.visible = true; edit.forceActiveFocus() } }
+                AppMenuItem { text: qsTr("Duplicate"); onTriggered: editor.duplicatePage(pageRow.modelData.id) }
+                AppMenuItem { text: qsTr("Delete"); enabled: editor.pages.length > 1; onTriggered: editor.deletePage(pageRow.modelData.id) }
             }
         }
     }
