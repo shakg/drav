@@ -674,7 +674,7 @@ NodeId hitRec(const Document& d, NodeId id, SkPoint pt, float tol)
     sp.setStyle(SkPaint::kStroke_Style);
     sp.setStrokeWidth(std::max(n.p.strokes.empty() ? 0.f : n.p.stroke.weight, 0.f) + tol * 2);
     SkPath outline;
-    skpathutils::FillPathWithPaint(path, sp, &outline);
+    skpathutils::FillPathWithPaint(t == NodeType::Vector ? strokePath(d, id) : path, sp, &outline);
     return outline.contains(lp.x(), lp.y()) ? id : kNoNode;
 }
 
@@ -975,7 +975,8 @@ void Editor::drawSelection(SkCanvas* c)
         const Node& n = m_doc->at(id);
         SkPath p = (n.type() == NodeType::Text || isFrameLike(n.type()) || n.type() == NodeType::Group)
             ? SkPath::Rect(n.localRect())
-            : fillPath(*m_doc, id);
+            : n.type() == NodeType::Vector ? strokePath(*m_doc, id)
+                                           : fillPath(*m_doc, id);
         c->drawPath(p.makeTransform(m), line);
     }
     if (!showSizeLabel)
@@ -1052,7 +1053,8 @@ void Editor::drawOverlay(SkCanvas* c)
         SkMatrix m = SkMatrix::Concat(v, m_doc->worldTransform(m_hover));
         SkPath p = (n.type() == NodeType::Text || isFrameLike(n.type()) || n.type() == NodeType::Group)
             ? SkPath::Rect(n.localRect())
-            : fillPath(*m_doc, m_hover);
+            : n.type() == NodeType::Vector ? strokePath(*m_doc, m_hover)
+                                           : fillPath(*m_doc, m_hover);
         c->drawPath(p.makeTransform(m), hp);
     }
     if (dropTarget && m_doc->isAttached(dropTarget) && m_doc->at(dropTarget).type() != NodeType::Page) {

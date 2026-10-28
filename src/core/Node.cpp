@@ -119,6 +119,13 @@ void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRo
 
 SkPath VectorData::toPath() const
 {
+    if (isNetwork()) {
+        SkPathBuilder b(fill);
+        for (const NetRegion& r : regions)
+            for (const auto& loop : r.loops)
+                b.addPath(loopPath(loop));
+        return b.detach();
+    }
     SkPathBuilder b(fill);
     for (const Contour& c : contours) {
         if (c.pts.empty())
@@ -142,6 +149,12 @@ SkPath VectorData::toPath() const
 
 void VectorData::transform(const SkMatrix& m)
 {
+    for (NetVertex& v : vertices)
+        v.p = m.mapPoint(v.p);
+    for (NetSegment& sg : segments) {
+        sg.ca = m.mapPoint(sg.ca);
+        sg.cb = m.mapPoint(sg.cb);
+    }
     for (Contour& c : contours)
         for (Anchor& a : c.pts) {
             a.p = m.mapPoint(a.p);
@@ -152,7 +165,10 @@ void VectorData::transform(const SkMatrix& m)
 
 SkRect VectorData::bounds() const
 {
-    return toPath().computeTightBounds();
+    SkRect b = toPath().computeTightBounds();
+    if (isNetwork())
+        b.join(strokePath().computeTightBounds());
+    return b;
 }
 
 } // namespace drav

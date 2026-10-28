@@ -750,6 +750,56 @@ private slots:
         QCOMPARE(ed->pages().size(), 2); // imported components now on a visible page
     }
 
+    void vectorNetworkEditing()
+    {
+        // Open path A-B-C with the pen.
+        ed->setTool("pen");
+        click({100, 100});
+        click({200, 100});
+        click({200, 200});
+        key(Qt::Key_Escape);
+        NodeId id = only().id;
+        QCOMPARE(only().type(), NodeType::Vector);
+        ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::red)}}});
+        key(Qt::Key_Return); // edit points
+        QCOMPARE(ed->toolName(), QStringLiteral("vectorEdit"));
+
+        // Pen inside the vector: from C back to A closes the triangle and fills it, then branch A -> D.
+        key(Qt::Key_P);
+        click({200, 200});
+        click({100, 100});
+        click({100, 200});
+        const VectorData& v = doc().at(id).p.vector;
+        QVERIFY(v.isNetwork());
+        QCOMPARE(v.vertices.size(), size_t(4));
+        QCOMPARE(v.segments.size(), size_t(4));
+        int a = -1;
+        for (int i = 0; i < int(v.vertices.size()); ++i)
+            if (doc().worldTransform(id).mapPoint(v.vertices[i].p) == SkPoint{100, 100})
+                a = i;
+        QVERIFY(a >= 0);
+        QCOMPARE(v.segmentsAt(a).size(), size_t(3));
+        QCOMPARE(v.regions.size(), size_t(1));
+        QCOMPARE(ed->hitDeepest({180, 120}), id); // inside the filled triangle
+        QCOMPARE(ed->hitDeepest({100, 150}), id); // on the open branch
+
+        // The paint bucket clears the triangle's fill.
+        key(Qt::Key_Escape);
+        key(Qt::Key_B);
+        click({180, 120});
+        QVERIFY(doc().at(id).p.vector.regions.empty());
+        ed->undo();
+        QCOMPARE(doc().at(id).p.vector.regions.size(), size_t(1));
+
+        // Clicking a segment adds a point.
+        QCOMPARE(ed->toolName(), QStringLiteral("select")); // undo leaves point editing
+        key(Qt::Key_Return);
+        click({150, 100});
+        QCOMPARE(doc().at(id).p.vector.vertices.size(), size_t(5));
+        key(Qt::Key_Return);
+        QCOMPARE(ed->toolName(), QStringLiteral("select"));
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

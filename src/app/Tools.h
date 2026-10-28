@@ -257,6 +257,8 @@ private:
 };
 
 // Anchor/handle editing of a vector node.
+// Edits a vector as a network: move vertices and handles, add points on segments (click), draw
+// branches with the pen (P) and fill or clear closed areas with the paint bucket (B).
 class VectorEditTool : public Tool {
 public:
     using Tool::Tool;
@@ -268,28 +270,42 @@ public:
     void doubleClick(const InputEvent& e) override;
     bool key(QKeyEvent* e) override;
     void drawOverlay(SkCanvas* c) override;
-    Qt::CursorShape cursor() const override { return Qt::ArrowCursor; }
+    Qt::CursorShape cursor() const override { return m_mode == Mode::Edit ? Qt::ArrowCursor : Qt::CrossCursor; }
+
+    enum class Mode { Edit, Pen, Bucket };
+    Mode mode() const { return m_mode; }
+    void setMode(Mode m);
+    const std::vector<int>& selectedVertices() const { return m_selected; }
 
 private:
     struct Ref {
-        int contour = -1, index = -1;
-        int part = 0; // 0 anchor, 1 in-handle, 2 out-handle
-        bool valid() const { return contour >= 0; }
-        bool operator==(const Ref&) const = default;
+        int vertex = -1;   // a vertex, or
+        int seg = -1;      // the control point of segment `seg` at end `end` (0 = a, 1 = b)
+        int end = 0;
+        bool valid() const { return vertex >= 0 || seg >= 0; }
     };
-    Ref hit(QPointF screen) const;
-    bool hitSegment(SkPoint local, int* contour, int* index, float* t) const;
+    Ref hit(QPointF screen, const VectorData& v) const;
+    bool hitSegment(SkPoint local, const VectorData& v, int* seg, float* t) const;
     SkMatrix localToScreen() const;
+    VectorData network() const; // the node's vector as a network
+    void write(const VectorData& v);
     void normalize();
+    void status();
 
     NodeId m_node = kNoNode;
-    std::vector<Ref> m_selected;
+    Mode m_mode = Mode::Edit;
+    std::vector<int> m_selected; // vertices
     Ref m_drag;
     SkPoint m_dragStart{};
     VectorData m_startData;
     bool m_dragging = false;
-    QPointF m_marqueeStart;
-    bool m_marquee = false;
+    // Pen
+    int m_penFrom = -1;          // vertex the next segment starts from
+    SkPoint m_penOut{};          // outgoing control for the next segment (after a drag)
+    bool m_penHasOut = false;
+    int m_penVertex = -1;        // vertex being dragged out into a curve
+    int m_penSeg = -1;           // segment ending at that vertex
+    SkPoint m_hover{};
 };
 
 } // namespace drav

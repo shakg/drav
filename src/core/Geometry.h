@@ -10,6 +10,8 @@ class Document;
 
 // Fill geometry of a node in its local space.
 SkPath fillPath(const Document& doc, NodeId id);
+// Stroke geometry: the fill path, except for vector networks (all segments, including open ones).
+SkPath strokePath(const Document& doc, NodeId id);
 
 // Rounded rectangle with Figma-style corner smoothing (smoothing 0 = circular corners).
 SkPath smoothRect(float w, float h, const CornerRadii& r, float smoothing);

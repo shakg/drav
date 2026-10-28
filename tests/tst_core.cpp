@@ -831,6 +831,71 @@ private slots:
         QCOMPARE(d.at(g).p.width, 10.f + 30 + 20 + 30 + 10);
     }
 
+    void vectorNetworks()
+    {
+        VectorData sq;
+        Contour c;
+        for (SkPoint p : {SkPoint{0, 0}, SkPoint{100, 0}, SkPoint{100, 100}, SkPoint{0, 100}})
+            c.pts.push_back({p, p, p, AnchorMode::Corner});
+        c.closed = true;
+        sq.contours = {c};
+        VectorData n = sq.asNetwork();
+        QCOMPARE(n.vertices.size(), size_t(4));
+        QCOMPARE(n.segments.size(), size_t(4));
+        QVERIFY(n.toPath().contains(50, 50));
+        QCOMPARE(n.toPath().computeTightBounds(), sq.toPath().computeTightBounds());
+
+        // A branch from a corner: stroked, but it doesn't change the filled area.
+        n.vertices.push_back({{150, -50}, AnchorMode::Corner});
+        n.addSegment(1, 4, n.vertices[1].p, n.vertices[4].p, false);
+        QCOMPARE(n.segmentsAt(1).size(), size_t(3));
+        QVERIFY(n.strokePath().computeTightBounds().right() >= 150);
+        QVERIFY(!n.toPath().contains(120, -10));
+        QCOMPARE(n.faces().size(), size_t(1));
+
+        // Splitting a region edge keeps the fill.
+        n.splitSegment(0, 0.5f);
+        QCOMPARE(n.regions[0].loops[0].size(), size_t(5));
+        QVERIFY(n.toPath().contains(50, 50));
+        QVERIFY(n.toPath().contains(50, 2));
+
+        // A diagonal makes two faces; the paint bucket fills one at a time.
+        n.regions.clear();
+        n.addSegment(0, 2, n.vertices[0].p, n.vertices[2].p, false);
+        QCOMPARE(n.faces().size(), size_t(2));
+        QVERIFY(n.toggleRegionAt({75, 25}));
+        QVERIFY(n.toPath().contains(75, 25));
+        QVERIFY(!n.toPath().contains(25, 75));
+        QVERIFY(n.toggleRegionAt({75, 25}));
+        QVERIFY(n.regions.empty());
+
+        // Connecting back to the path fills the new loop.
+        VectorData open;
+        open.vertices = {{{0, 0}}, {{10, 0}}, {{10, 10}}};
+        open.addSegment(0, 1, {0, 0}, {10, 0}, true);
+        open.addSegment(1, 2, {10, 0}, {10, 10}, true);
+        QVERIFY(open.regions.empty());
+        open.addSegment(2, 0, {10, 10}, {0, 0}, true);
+        QCOMPARE(open.regions.size(), size_t(1));
+        QVERIFY(open.toPath().contains(7, 3));
+
+        // Deleting a vertex drops its segments and the loops through them.
+        open.removeVertices({1});
+        QCOMPARE(open.segments.size(), size_t(1));
+        QVERIFY(open.regions.empty());
+
+        Document d;
+        d.begin("v");
+        Props vp;
+        vp.type = NodeType::Vector;
+        vp.vector = n;
+        NodeId id = d.create(vp, page(d));
+        d.commit();
+        Document d2;
+        QVERIFY(io::load(d2, io::save(d)));
+        QCOMPARE(d2.at(id).p.vector, d.at(id).p.vector);
+    }
+
     void smoothRectGeometry()
     {
         SkPath p = smoothRect(100, 100, {20, 20, 20, 20}, 0.6f);

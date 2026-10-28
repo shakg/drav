@@ -8,6 +8,8 @@
 #include <include/core/SkCanvas.h>
 #include <include/core/SkPaint.h>
 #include <include/core/SkPathBuilder.h>
+#include <include/core/SkPathEffect.h>
+#include <include/effects/SkDashPathEffect.h>
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -1835,8 +1837,29 @@ void VectorEditTool::begin(NodeId id)
 {
     m_node = id;
     m_selected.clear();
+    m_mode = Mode::Edit;
+    m_penFrom = -1;
     ed.select({id});
+    status();
     ed.requestUpdate();
+}
+
+void VectorEditTool::setMode(Mode m)
+{
+    m_mode = m;
+    m_penHasOut = false;
+    m_penFrom = m == Mode::Pen && m_selected.size() == 1 ? m_selected.front() : -1;
+    status();
+    ed.requestUpdate();
+}
+
+void VectorEditTool::status()
+{
+    switch (m_mode) {
+    case Mode::Edit: ed.setStatus(QObject::tr("Edit points · P pen · B paint bucket · Enter to finish")); break;
+    case Mode::Pen: ed.setStatus(QObject::tr("Pen: click to add points, click a point to branch or connect, Esc to stop")); break;
+    case Mode::Bucket: ed.setStatus(QObject::tr("Paint bucket: click a closed area to fill or clear it")); break;
+    }
 }
 
 void VectorEditTool::deactivate()
@@ -1847,6 +1870,8 @@ void VectorEditTool::deactivate()
         m_dragging = false;
     }
     m_node = kNoNode;
+    m_mode = Mode::Edit;
+    ed.setStatus(QString());
 }
 
 SkMatrix VectorEditTool::localToScreen() const
@@ -1854,67 +1879,70 @@ SkMatrix VectorEditTool::localToScreen() const
     return SkMatrix::Concat(ed.view(), ed.doc().worldTransform(m_node));
 }
 
-VectorEditTool::Ref VectorEditTool::hit(QPointF screen) const
+VectorData VectorEditTool::network() const
 {
-    const VectorData& v = ed.doc().at(m_node).p.vector;
-    const SkMatrix m = localToScreen();
-    // Handles of selected anchors take priority.
-    for (const Ref& s : m_selected) {
-        if (s.contour >= int(v.contours.size()) || s.index >= int(v.contours[s.contour].pts.size()))
-            continue;
-        const Anchor& a = v.contours[s.contour].pts[s.index];
-        if (a.hasIn() && dist(qp(m.mapPoint(a.in)), screen) < 6)
-            return {s.contour, s.index, 1};
-        if (a.hasOut() && dist(qp(m.mapPoint(a.out)), screen) < 6)
-            return {s.contour, s.index, 2};
-    }
-    for (int ci = 0; ci < int(v.contours.size()); ++ci)
-        for (int i = 0; i < int(v.contours[ci].pts.size()); ++i)
-            if (dist(qp(m.mapPoint(v.contours[ci].pts[i].p)), screen) < 7)
-                return {ci, i, 0};
-    return {};
+    return ed.doc().at(m_node).p.vector.asNetwork();
 }
 
-bool VectorEditTool::hitSegment(SkPoint local, int* contour, int* index, float* tOut) const
+void VectorEditTool::write(const VectorData& v)
 {
-    const VectorData& v = ed.doc().at(m_node).p.vector;
-    const float tol = float(5 / ed.zoom());
-    for (int ci = 0; ci < int(v.contours.size()); ++ci) {
-        const Contour& c = v.contours[ci];
-        const int n = int(c.pts.size());
-        const int segs = c.closed ? n : n - 1;
-        for (int i = 0; i < segs; ++i) {
-            const Anchor& a = c.pts[i];
-            const Anchor& b = c.pts[(i + 1) % n];
-            // Sample the cubic.
-            SkPoint prev = a.p;
-            for (int s = 1; s <= 24; ++s) {
-                float t = s / 24.f, u = 1 - t;
-                SkPoint p = a.p * (u * u * u) + a.out * (3 * u * u * t) + b.in * (3 * u * t * t) + b.p * (t * t * t);
-                float segT;
-                if (distToSegment(qp(local), qp(prev), qp(p), &segT) < tol) {
-                    *contour = ci;
-                    *index = i;
-                    *tOut = (s - 1 + segT) / 24.f;
-                    return true;
-                }
-                prev = p;
-            }
-        }
-    }
-    return false;
+    Props& p = doc().edit(m_node);
+    p.vector = v;
+    p.vector.contours.clear();
 }
 
 void VectorEditTool::normalize()
 {
     Props& p = doc().edit(m_node);
-    SkRect b = p.vector.toPath().computeTightBounds();
+    SkRect b = p.vector.bounds();
+    if (b.isEmpty() && b.width() == 0 && b.height() == 0 && p.vector.vertices.size() == 1)
+        b = SkRect::MakeXYWH(p.vector.vertices[0].p.x(), p.vector.vertices[0].p.y(), 0, 0);
     if (b.left() == 0 && b.top() == 0 && b.width() == p.width && b.height() == p.height)
         return;
     p.vector.transform(SkMatrix::Translate(-b.left(), -b.top()));
     p.transform.preTranslate(b.left(), b.top());
     p.width = std::max(b.width(), 0.01f);
     p.height = std::max(b.height(), 0.01f);
+}
+
+VectorEditTool::Ref VectorEditTool::hit(QPointF screen, const VectorData& v) const
+{
+    const SkMatrix m = localToScreen();
+    // Handles next to selected vertices take priority.
+    for (int vi : m_selected)
+        for (int s : v.segmentsAt(vi)) {
+            const NetSegment& sg = v.segments[s];
+            if (sg.a == vi && sg.ca != v.vertices[vi].p && dist(qp(m.mapPoint(sg.ca)), screen) < 6)
+                return {-1, s, 0};
+            if (sg.b == vi && sg.cb != v.vertices[vi].p && dist(qp(m.mapPoint(sg.cb)), screen) < 6)
+                return {-1, s, 1};
+        }
+    for (int i = 0; i < int(v.vertices.size()); ++i)
+        if (dist(qp(m.mapPoint(v.vertices[i].p)), screen) < 7)
+            return {i, -1, 0};
+    return {};
+}
+
+bool VectorEditTool::hitSegment(SkPoint local, const VectorData& v, int* seg, float* tOut) const
+{
+    const float tol = float(5 / ed.zoom());
+    for (int s = 0; s < int(v.segments.size()); ++s) {
+        const NetSegment& sg = v.segments[s];
+        const SkPoint p0 = v.vertices[sg.a].p, p3 = v.vertices[sg.b].p;
+        SkPoint prev = p0;
+        for (int k = 1; k <= 24; ++k) {
+            const float t = k / 24.f, u = 1 - t;
+            const SkPoint p = p0 * (u * u * u) + sg.ca * (3 * u * u * t) + sg.cb * (3 * u * t * t) + p3 * (t * t * t);
+            float segT;
+            if (distToSegment(qp(local), qp(prev), qp(p), &segT) < tol) {
+                *seg = s;
+                *tOut = (k - 1 + segT) / 24.f;
+                return true;
+            }
+            prev = p;
+        }
+    }
+    return false;
 }
 
 void VectorEditTool::press(const InputEvent& e)
@@ -1924,51 +1952,83 @@ void VectorEditTool::press(const InputEvent& e)
     SkMatrix inv;
     if (!doc().worldTransform(m_node).invert(&inv))
         return;
-    const SkPoint local = inv.mapPoint(e.page);
-    Ref r = hit(e.screen);
+    const SkPoint local = inv.mapPoint({ed.snapValue(e.page.x()), ed.snapValue(e.page.y())});
+    VectorData v = network();
+
+    if (m_mode == Mode::Bucket) {
+        if (v.toggleRegionAt(local)) {
+            doc().breakMerge();
+            doc().begin(QObject::tr("Fill area"));
+            write(v);
+            doc().commit();
+        }
+        return;
+    }
+
+    if (m_mode == Mode::Pen) {
+        doc().breakMerge();
+        doc().begin(QObject::tr("Pen"));
+        const Ref r = hit(e.screen, v);
+        const bool fills = !doc().at(m_node).p.fills.empty();
+        int target;
+        if (r.vertex >= 0) {
+            target = r.vertex;
+        } else {
+            target = int(v.vertices.size());
+            v.vertices.push_back({local, AnchorMode::Corner});
+        }
+        m_penSeg = -1;
+        if (m_penFrom >= 0 && m_penFrom != target) {
+            const SkPoint from = v.vertices[m_penFrom].p, to = v.vertices[target].p;
+            m_penSeg = v.addSegment(m_penFrom, target, m_penHasOut ? m_penOut : from, to, fills);
+        }
+        write(v);
+        m_penVertex = target;
+        m_penFrom = target;
+        m_penHasOut = false;
+        m_selected = {target};
+        m_dragging = true;
+        m_dragStart = local;
+        ed.requestUpdate();
+        return;
+    }
+
+    // Edit mode
+    const Ref r = hit(e.screen, v);
     if (r.valid()) {
-        if (r.part == 0) {
-            Ref anchor{r.contour, r.index, 0};
-            auto it = std::find(m_selected.begin(), m_selected.end(), anchor);
+        if (r.vertex >= 0) {
+            auto it = std::find(m_selected.begin(), m_selected.end(), r.vertex);
             if (e.mods & Qt::ShiftModifier) {
                 if (it != m_selected.end())
                     m_selected.erase(it);
                 else
-                    m_selected.push_back(anchor);
+                    m_selected.push_back(r.vertex);
             } else if (it == m_selected.end()) {
-                m_selected = {anchor};
+                m_selected = {r.vertex};
             }
         }
         m_drag = r;
         m_dragStart = local;
-        m_startData = doc().at(m_node).p.vector;
+        m_startData = v;
+        doc().breakMerge();
         doc().begin(QObject::tr("Edit vector"));
         m_dragging = true;
         ed.requestUpdate();
         return;
     }
-    int ci, idx;
+    int seg;
     float t;
-    if (hitSegment(local, &ci, &idx, &t)) {
-        // Insert an anchor on the segment.
+    if (hitSegment(local, v, &seg, &t)) {
+        // A point on the segment; keep dragging it right away.
+        doc().breakMerge();
         doc().begin(QObject::tr("Add point"));
-        VectorData v = doc().at(m_node).p.vector;
-        Contour& c = v.contours[ci];
-        const int n = int(c.pts.size());
-        Anchor& a = c.pts[idx];
-        Anchor& b = c.pts[(idx + 1) % n];
-        SkPoint s[7];
-        splitCubic(a.p, a.out, b.in, b.p, t, s);
-        const bool straight = !a.hasOut() && !b.hasIn();
-        Anchor mid{s[3], straight ? s[3] : s[2], straight ? s[3] : s[4], straight ? AnchorMode::Corner : AnchorMode::Asymmetric};
-        if (!straight) {
-            a.out = s[1];
-            b.in = s[5];
-        }
-        c.pts.insert(c.pts.begin() + idx + 1, mid);
-        doc().edit(m_node).vector = v;
-        doc().commit();
-        m_selected = {{ci, idx + 1, 0}};
+        const int nv = v.splitSegment(seg, t);
+        write(v);
+        m_selected = {nv};
+        m_drag = {nv, -1, 0};
+        m_dragStart = local;
+        m_startData = v;
+        m_dragging = true;
         ed.requestUpdate();
         return;
     }
@@ -1984,39 +2044,69 @@ void VectorEditTool::press(const InputEvent& e)
 
 void VectorEditTool::move(const InputEvent& e)
 {
-    if (!m_dragging || !(e.buttons & Qt::LeftButton))
-        return;
     SkMatrix inv;
-    if (!doc().worldTransform(m_node).invert(&inv))
+    if (!doc().isAttached(m_node) || !doc().worldTransform(m_node).invert(&inv))
         return;
-    SkPoint local = inv.mapPoint({ed.snapValue(e.page.x()), ed.snapValue(e.page.y())});
-    SkVector d = local - m_dragStart;
+    const SkPoint local = inv.mapPoint({ed.snapValue(e.page.x()), ed.snapValue(e.page.y())});
+    m_hover = local;
+    if (!m_dragging || !(e.buttons & Qt::LeftButton)) {
+        if (m_mode == Mode::Pen)
+            ed.requestUpdate();
+        return;
+    }
+    if (m_mode == Mode::Pen) {
+        // Dragging out a new point makes it smooth: mirrored handles around it.
+        VectorData v = doc().at(m_node).p.vector;
+        if (m_penVertex < 0 || m_penVertex >= int(v.vertices.size()))
+            return;
+        const SkPoint p = v.vertices[m_penVertex].p;
+        m_penOut = local;
+        m_penHasOut = SkPoint::Distance(local, p) > 1 / ed.zoom();
+        if (m_penSeg >= 0 && m_penSeg < int(v.segments.size()))
+            v.segments[m_penSeg].cb = m_penHasOut ? p - (local - p) : p;
+        v.vertices[m_penVertex].mode = m_penHasOut ? AnchorMode::Mirrored : AnchorMode::Corner;
+        write(v);
+        doc().updateDerived();
+        ed.requestUpdate();
+        return;
+    }
+    const SkVector d = local - m_dragStart;
     VectorData v = m_startData;
-    if (m_drag.part == 0) {
-        for (const Ref& s : m_selected) {
-            if (s.contour >= int(v.contours.size()) || s.index >= int(v.contours[s.contour].pts.size()))
+    if (m_drag.vertex >= 0) {
+        for (int vi : m_selected) {
+            if (vi >= int(v.vertices.size()))
                 continue;
-            Anchor& a = v.contours[s.contour].pts[s.index];
-            a.p += d;
-            a.in += d;
-            a.out += d;
+            v.vertices[vi].p += d;
+            for (int s : v.segmentsAt(vi)) {
+                if (v.segments[s].a == vi)
+                    v.segments[s].ca += d;
+                if (v.segments[s].b == vi)
+                    v.segments[s].cb += d;
+            }
         }
     } else {
-        Anchor& a = v.contours[m_drag.contour].pts[m_drag.index];
-        SkPoint& h = m_drag.part == 1 ? a.in : a.out;
-        SkPoint& o = m_drag.part == 1 ? a.out : a.in;
+        NetSegment& sg = v.segments[m_drag.seg];
+        const int vi = m_drag.end == 0 ? sg.a : sg.b;
+        SkPoint& h = m_drag.end == 0 ? sg.ca : sg.cb;
         h += d;
+        NetVertex& vx = v.vertices[vi];
         if (e.mods & Qt::AltModifier)
-            a.mode = AnchorMode::Disconnected;
-        if (a.mode == AnchorMode::Mirrored) {
-            o = a.p - (h - a.p);
-        } else if (a.mode == AnchorMode::Asymmetric && o != a.p) {
-            SkVector dir = a.p - h;
-            if (dir.normalize())
-                o = a.p + dir * SkPoint::Distance(o, a.p);
+            vx.mode = AnchorMode::Disconnected;
+        // A vertex joining two segments keeps its handles in line (mirrored or same direction).
+        const auto at = v.segmentsAt(vi);
+        if (at.size() == 2 && (vx.mode == AnchorMode::Mirrored || vx.mode == AnchorMode::Asymmetric)) {
+            const int other = at[0] == m_drag.seg ? at[1] : at[0];
+            SkPoint& o = v.segments[other].a == vi ? v.segments[other].ca : v.segments[other].cb;
+            if (vx.mode == AnchorMode::Mirrored) {
+                o = vx.p - (h - vx.p);
+            } else if (o != vx.p) {
+                SkVector dir = vx.p - h;
+                if (dir.normalize())
+                    o = vx.p + dir * SkPoint::Distance(o, vx.p);
+            }
         }
     }
-    doc().edit(m_node).vector = v;
+    write(v);
     doc().updateDerived();
     ed.requestUpdate();
 }
@@ -2033,30 +2123,39 @@ void VectorEditTool::release(const InputEvent&)
 
 void VectorEditTool::doubleClick(const InputEvent& e)
 {
-    Ref r = hit(e.screen);
-    if (!r.valid() || r.part != 0) {
+    if (m_mode != Mode::Edit)
+        return;
+    VectorData v = network();
+    const Ref r = hit(e.screen, v);
+    if (r.vertex < 0) {
         if (!r.valid())
             ed.setTool(QStringLiteral("select"));
         return;
     }
     // Toggle corner <-> smooth.
-    doc().begin(QObject::tr("Toggle point"));
-    VectorData v = doc().at(m_node).p.vector;
-    Contour& c = v.contours[r.contour];
-    const int n = int(c.pts.size());
-    Anchor& a = c.pts[r.index];
-    if (a.hasIn() || a.hasOut()) {
-        a.in = a.out = a.p;
-        a.mode = AnchorMode::Corner;
-    } else {
-        SkPoint prev = (r.index > 0 || c.closed) ? c.pts[(r.index - 1 + n) % n].p : a.p;
-        SkPoint next = (r.index + 1 < n || c.closed) ? c.pts[(r.index + 1) % n].p : a.p;
-        SkVector tan = (next - prev) * 0.25f;
-        a.in = a.p - tan;
-        a.out = a.p + tan;
-        a.mode = AnchorMode::Mirrored;
+    const int vi = r.vertex;
+    NetVertex& vx = v.vertices[vi];
+    const auto at = v.segmentsAt(vi);
+    bool curved = false;
+    for (int s : at)
+        curved |= (v.segments[s].a == vi ? v.segments[s].ca : v.segments[s].cb) != vx.p;
+    if (curved) {
+        for (int s : at)
+            (v.segments[s].a == vi ? v.segments[s].ca : v.segments[s].cb) = vx.p;
+        vx.mode = AnchorMode::Corner;
+    } else if (at.size() == 2) {
+        auto other = [&](int s) { return v.vertices[v.segments[s].a == vi ? v.segments[s].b : v.segments[s].a].p; };
+        const SkVector tan = (other(at[1]) - other(at[0])) * 0.25f;
+        for (int s : at) {
+            const SkPoint o = other(s);
+            const float dir = (o - vx.p).dot(tan) >= 0 ? 1.f : -1.f;
+            (v.segments[s].a == vi ? v.segments[s].ca : v.segments[s].cb) = vx.p + tan * dir;
+        }
+        vx.mode = AnchorMode::Mirrored;
     }
-    doc().edit(m_node).vector = v;
+    doc().breakMerge();
+    doc().begin(QObject::tr("Toggle point"));
+    write(v);
     normalize();
     doc().commit();
     ed.requestUpdate();
@@ -2064,34 +2163,52 @@ void VectorEditTool::doubleClick(const InputEvent& e)
 
 bool VectorEditTool::key(QKeyEvent* e)
 {
+    const bool plain = !(e->modifiers() & (Qt::ControlModifier | Qt::MetaModifier | Qt::AltModifier));
     switch (e->key()) {
     case Qt::Key_Escape:
+        if (m_mode == Mode::Pen && m_penFrom >= 0) {
+            m_penFrom = -1; // stop the current chain, stay in pen mode
+            m_penHasOut = false;
+            ed.requestUpdate();
+        } else if (m_mode != Mode::Edit) {
+            setMode(Mode::Edit);
+        } else {
+            ed.setTool(QStringLiteral("select"));
+        }
+        return true;
     case Qt::Key_Return:
     case Qt::Key_Enter:
         ed.setTool(QStringLiteral("select"));
+        return true;
+    case Qt::Key_P:
+        if (plain)
+            setMode(Mode::Pen);
+        return true;
+    case Qt::Key_B:
+        if (plain)
+            setMode(Mode::Bucket);
+        return true;
+    case Qt::Key_V:
+        if (plain)
+            setMode(Mode::Edit);
         return true;
     case Qt::Key_Delete:
     case Qt::Key_Backspace: {
         if (m_selected.empty())
             return true;
-        doc().begin(QObject::tr("Delete points"));
-        VectorData v = doc().at(m_node).p.vector;
-        auto sel = m_selected;
-        std::sort(sel.begin(), sel.end(), [](const Ref& a, const Ref& b) {
-            return a.contour != b.contour ? a.contour > b.contour : a.index > b.index;
-        });
-        for (const Ref& s : sel)
-            if (s.contour < int(v.contours.size()) && s.index < int(v.contours[s.contour].pts.size()))
-                v.contours[s.contour].pts.erase(v.contours[s.contour].pts.begin() + s.index);
-        std::erase_if(v.contours, [](const Contour& c) { return c.pts.size() < 2; });
+        VectorData v = network();
+        v.removeVertices(m_selected);
         m_selected.clear();
-        if (v.contours.empty()) {
+        m_penFrom = -1;
+        doc().breakMerge();
+        doc().begin(QObject::tr("Delete points"));
+        if (v.vertices.empty()) {
             doc().remove(m_node);
             doc().commit();
             ed.setTool(QStringLiteral("select"));
             return true;
         }
-        doc().edit(m_node).vector = v;
+        write(v);
         normalize();
         doc().commit();
         ed.requestUpdate();
@@ -2104,18 +2221,21 @@ bool VectorEditTool::key(QKeyEvent* e)
         if (m_selected.empty())
             return true;
         const float step = (e->modifiers() & Qt::ShiftModifier) ? 10 : 1;
-        SkVector d = {e->key() == Qt::Key_Left ? -step : e->key() == Qt::Key_Right ? step : 0,
+        const SkVector d = {e->key() == Qt::Key_Left ? -step : e->key() == Qt::Key_Right ? step : 0,
             e->key() == Qt::Key_Up ? -step : e->key() == Qt::Key_Down ? step : 0};
+        VectorData v = network();
+        for (int vi : m_selected) {
+            v.vertices[vi].p += d;
+            for (int s : v.segmentsAt(vi)) {
+                if (v.segments[s].a == vi)
+                    v.segments[s].ca += d;
+                if (v.segments[s].b == vi)
+                    v.segments[s].cb += d;
+            }
+        }
         doc().begin(QObject::tr("Nudge points"));
         doc().setMergeKey(QStringLiteral("nudge-points"));
-        VectorData v = doc().at(m_node).p.vector;
-        for (const Ref& s : m_selected) {
-            Anchor& a = v.contours[s.contour].pts[s.index];
-            a.p += d;
-            a.in += d;
-            a.out += d;
-        }
-        doc().edit(m_node).vector = v;
+        write(v);
         normalize();
         doc().commit();
         return true;
@@ -2129,33 +2249,56 @@ void VectorEditTool::drawOverlay(SkCanvas* c)
     if (!doc().isAttached(m_node))
         return;
     const SkMatrix m = localToScreen();
-    const VectorData& v = doc().at(m_node).p.vector;
+    const VectorData v = network();
     SkPaint line;
     line.setAntiAlias(true);
     line.setStyle(SkPaint::kStroke_Style);
     line.setColor(kBlue);
     line.setStrokeWidth(1);
-    c->drawPath(v.toPath().makeTransform(m), line);
-    auto isSel = [&](int ci, int i) { return std::find(m_selected.begin(), m_selected.end(), Ref{ci, i, 0}) != m_selected.end(); };
-    for (int ci = 0; ci < int(v.contours.size()); ++ci) {
-        const Contour& ct = v.contours[ci];
-        const int n = int(ct.pts.size());
-        for (int i = 0; i < n; ++i) {
-            const bool show = isSel(ci, i) || isSel(ci, (i + 1) % n) || isSel(ci, (i - 1 + n) % n);
-            const Anchor& a = ct.pts[i];
-            if (show) {
-                if (a.hasIn()) {
-                    c->drawLine(m.mapPoint(a.p), m.mapPoint(a.in), line);
-                    drawHandle(c, m.mapPoint(a.in), false, true, 6);
-                }
-                if (a.hasOut()) {
-                    c->drawLine(m.mapPoint(a.p), m.mapPoint(a.out), line);
-                    drawHandle(c, m.mapPoint(a.out), false, true, 6);
-                }
+    if (m_mode == Mode::Bucket) {
+        // Show the filled areas and the face under the pointer.
+        SkPaint fill;
+        fill.setAntiAlias(true);
+        fill.setColor(SkColorSetARGB(0x40, 0x0D, 0x99, 0xFF));
+        c->drawPath(v.toPath().makeTransform(m), fill);
+        for (const auto& f : v.faces()) {
+            const SkPath path = v.loopPath(f);
+            if (path.contains(m_hover.x(), m_hover.y())) {
+                SkPaint hp = line;
+                hp.setStrokeWidth(2);
+                c->drawPath(path.makeTransform(m), hp);
+                break;
             }
-            drawHandle(c, m.mapPoint(a.p), isSel(ci, i), false, 7);
         }
     }
+    c->drawPath(v.strokePath().makeTransform(m), line);
+    if (m_mode == Mode::Pen && m_penFrom >= 0 && m_penFrom < int(v.vertices.size()) && !m_dragging) {
+        SkPaint preview = line;
+        const float dash[] = {4, 4};
+        preview.setPathEffect(SkDashPathEffect::Make(dash, 2, 0));
+        SkPathBuilder b;
+        b.moveTo(v.vertices[m_penFrom].p);
+        if (m_penHasOut)
+            b.quadTo(m_penOut, m_hover);
+        else
+            b.lineTo(m_hover);
+        c->drawPath(b.detach().makeTransform(m), preview);
+    }
+    auto isSel = [&](int vi) { return std::find(m_selected.begin(), m_selected.end(), vi) != m_selected.end(); };
+    for (int s = 0; s < int(v.segments.size()); ++s) {
+        const NetSegment& sg = v.segments[s];
+        for (int end = 0; end < 2; ++end) {
+            const int vi = end == 0 ? sg.a : sg.b;
+            const int other = end == 0 ? sg.b : sg.a;
+            const SkPoint h = end == 0 ? sg.ca : sg.cb;
+            if (h == v.vertices[vi].p || !(isSel(vi) || isSel(other)))
+                continue;
+            c->drawLine(m.mapPoint(v.vertices[vi].p), m.mapPoint(h), line);
+            drawHandle(c, m.mapPoint(h), false, true, 6);
+        }
+    }
+    for (int i = 0; i < int(v.vertices.size()); ++i)
+        drawHandle(c, m.mapPoint(v.vertices[i].p), isSel(i) || i == m_penFrom, false, 7);
 }
 
 } // namespace drav

@@ -742,7 +742,7 @@ void Editor::outlineStroke()
             continue;
         }
         Props p = n.p;
-        SkPath outline = strokeOutline(p, fillPath(*m_doc, id));
+        SkPath outline = strokeOutline(p, strokePath(*m_doc, id));
         SkRect b = outline.computeTightBounds();
         outline.offset(-b.left(), -b.top());
         p.type = NodeType::Vector;

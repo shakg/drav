@@ -204,6 +204,14 @@ SkPath fillPath(const Document& doc, NodeId id)
     }
 }
 
+SkPath strokePath(const Document& doc, NodeId id)
+{
+    const Props& p = doc.at(id).p;
+    if (p.type == NodeType::Vector && p.vector.isNetwork())
+        return withCorners(p.vector.strokePath(), p.corners.tl);
+    return fillPath(doc, id);
+}
+
 SkPath strokeOutline(const Props& p, const SkPath& fill)
 {
     SkPaint paint;

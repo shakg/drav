@@ -150,6 +150,24 @@ QCborMap vectorToCbor(const VectorData& v)
         cs.append(QCborMap{{K("closed"), c.closed}, {K("pts"), pts}});
     }
     m[K("contours")] = cs;
+    if (v.isNetwork()) {
+        QCborArray verts, segs, regions;
+        for (const NetVertex& x : v.vertices)
+            verts.append(QCborArray{x.p.x(), x.p.y(), int(x.mode)});
+        for (const NetSegment& sg : v.segments)
+            segs.append(QCborArray{sg.a, sg.b, sg.ca.x(), sg.ca.y(), sg.cb.x(), sg.cb.y()});
+        for (const NetRegion& r : v.regions) {
+            QCborArray loops;
+            for (const auto& loop : r.loops) {
+                QCborArray l;
+                for (int i : loop)
+                    l.append(i);
+                loops.append(l);
+            }
+            regions.append(loops);
+        }
+        m[K("net")] = QCborMap{{K("vertices"), verts}, {K("segments"), segs}, {K("regions"), regions}};
+    }
     return m;
 }
 VectorData vectorFromCbor(const QCborMap& m)
@@ -172,6 +190,34 @@ VectorData vectorFromCbor(const QCborMap& m)
             c.pts.push_back(an);
         }
         v.contours.push_back(c);
+    }
+    if (m.contains(K("net"))) {
+        const QCborMap net = m.value(K("net")).toMap();
+        for (const QCborValue& xv : net.value(K("vertices")).toArray()) {
+            const QCborArray a = xv.toArray();
+            v.vertices.push_back({{float(a[0].toDouble()), float(a[1].toDouble())}, AnchorMode(a[2].toInteger())});
+        }
+        const int nv = int(v.vertices.size());
+        for (const QCborValue& sv : net.value(K("segments")).toArray()) {
+            const QCborArray a = sv.toArray();
+            const int sa = int(a[0].toInteger()), sb = int(a[1].toInteger());
+            if (sa < 0 || sb < 0 || sa >= nv || sb >= nv)
+                continue; // damaged file: skip rather than index out of range
+            v.segments.push_back({sa, sb, {float(a[2].toDouble()), float(a[3].toDouble())}, {float(a[4].toDouble()), float(a[5].toDouble())}});
+        }
+        const int ns = int(v.segments.size());
+        for (const QCborValue& rv : net.value(K("regions")).toArray()) {
+            NetRegion r;
+            for (const QCborValue& lv : rv.toArray()) {
+                std::vector<int> loop;
+                for (const QCborValue& i : lv.toArray())
+                    if (i.toInteger() >= 0 && i.toInteger() < ns)
+                        loop.push_back(int(i.toInteger()));
+                if (!loop.empty())
+                    r.loops.push_back(loop);
+            }
+            v.regions.push_back(r);
+        }
     }
     return v;
 }
@@ -355,7 +401,7 @@ QCborMap propsToCbor(const Props& p)
         m[K("points")] = p.pointCount;
         m[K("inner")] = p.starInner;
     }
-    if (p.type == NodeType::Vector || !p.vector.contours.empty())
+    if (p.type == NodeType::Vector || !p.vector.contours.empty() || p.vector.isNetwork())
         m[K("vector")] = vectorToCbor(p.vector);
     if (p.type == NodeType::Text) {
         m[K("text")] = p.text;

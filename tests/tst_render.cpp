@@ -51,6 +51,39 @@ private slots:
         QCOMPARE(bm.getColor(70, 30), SK_ColorWHITE);
     }
 
+    void vectorNetworkRender()
+    {
+        // Filled square region plus an open branch from a corner; stroked in blue.
+        Document d;
+        d.begin("x");
+        NodeId f = d.create(NodeType::Frame, d.currentPage());
+        d.resize(f, 100, 60);
+        d.edit(f).fills = {Paint::solid(SkColors::kWhite)};
+        Props vp;
+        vp.type = NodeType::Vector;
+        vp.width = 80;
+        vp.height = 40;
+        VectorData& v = vp.vector;
+        v.vertices = {{{0, 0}}, {{40, 0}}, {{40, 40}}, {{0, 40}}, {{80, 0}}};
+        v.addSegment(0, 1, {0, 0}, {40, 0}, true);
+        v.addSegment(1, 2, {40, 0}, {40, 40}, true);
+        v.addSegment(2, 3, {40, 40}, {0, 40}, true);
+        v.addSegment(3, 0, {0, 40}, {0, 0}, true);
+        v.addSegment(1, 4, {40, 0}, {80, 0}, true);
+        vp.fills = {Paint::solid(SkColors::kRed)};
+        vp.strokes = {Paint::solid(SkColors::kBlue)};
+        vp.stroke.weight = 4;
+        vp.stroke.align = StrokeAlign::Center;
+        NodeId n = d.create(vp, f);
+        d.setPosition(n, 10, 10);
+        d.commit();
+        QCOMPARE(d.at(n).p.vector.regions.size(), size_t(1));
+        SkBitmap bm = decode(exporter::exportNode(d, f, exporter::Format::PNG, 1));
+        QCOMPARE(bm.getColor(30, 30), SK_ColorRED);   // inside the region
+        QCOMPARE(bm.getColor(75, 10), SK_ColorBLUE);  // on the open branch
+        QCOMPARE(bm.getColor(75, 30), SK_ColorWHITE); // below the branch: not filled
+    }
+
     void allFeaturesRender()
     {
         // Smoke test: every node type and effect renders without crashing.

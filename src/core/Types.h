@@ -266,13 +266,50 @@ struct Contour {
     bool closed = false;
     bool operator==(const Contour&) const = default;
 };
+// Vector network: vertices joined by cubic segments; a vertex can join any number of segments.
+// Regions are loops of segments that get filled (a loop that doesn't return to its start is
+// closed implicitly, like an open path with a fill).
+struct NetVertex {
+    SkPoint p{};
+    AnchorMode mode = AnchorMode::Corner;
+    bool operator==(const NetVertex&) const = default;
+};
+struct NetSegment {
+    int a = 0, b = 0;
+    SkPoint ca{}, cb{}; // control points; equal to the vertex point for a straight end
+    bool operator==(const NetSegment&) const = default;
+};
+struct NetRegion {
+    std::vector<std::vector<int>> loops; // segment indices, in walking order
+    bool operator==(const NetRegion&) const = default;
+};
+
 struct VectorData {
     std::vector<Contour> contours;
     SkPathFillType fill = SkPathFillType::kWinding;
+    // Network form; when it has segments it replaces `contours`.
+    std::vector<NetVertex> vertices;
+    std::vector<NetSegment> segments;
+    std::vector<NetRegion> regions;
     bool operator==(const VectorData&) const = default;
-    SkPath toPath() const;
+    bool isNetwork() const { return !segments.empty() || !vertices.empty(); }
+    SkPath toPath() const;     // fill geometry
+    SkPath strokePath() const; // stroke geometry (all segments, chained through simple vertices)
     void transform(const SkMatrix& m);
     SkRect bounds() const;
+
+    // ---- network editing (VectorNetwork.cpp) ----
+    VectorData asNetwork() const; // same shape as a network
+    std::vector<int> segmentsAt(int vertex) const;
+    // Splits segment s at t; returns the new vertex.
+    int splitSegment(int s, float t);
+    // Adds a straight or curved segment; if it closes a loop and `fillLoops`, the loop is filled.
+    int addSegment(int a, int b, SkPoint ca, SkPoint cb, bool fillLoops);
+    void removeVertices(std::vector<int> vertices);
+    // Closed faces of the network (as segment loops) and toggling the fill of the face at a point.
+    std::vector<std::vector<int>> faces() const;
+    bool toggleRegionAt(SkPoint p);
+    SkPath loopPath(const std::vector<int>& loop) const;
 };
 
 struct CornerRadii {

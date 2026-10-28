@@ -387,7 +387,7 @@ void Renderer::drawContent(SkCanvas* c, const Node& n)
                 drawChildren(c, n);
             }
         }
-        drawStrokes(c, n, path, alpha);
+        drawStrokes(c, n, t == NodeType::Vector ? strokePath(m_doc, n.id) : path, alpha);
     }
 
     if (layer)
