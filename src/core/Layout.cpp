@@ -101,6 +101,8 @@ void LayoutEngine::layoutFrame(NodeId id)
     const AutoLayout L = P0.layout;
     if (L.mode == LayoutMode::None)
         return;
+    if (L.mode == LayoutMode::Grid)
+        return layoutGrid(id);
     const bool horiz = L.mode == LayoutMode::Horizontal;
     const bool hugW = P0.layoutChild.sizingH == LayoutSizing::Hug;
     const bool hugH = P0.layoutChild.sizingV == LayoutSizing::Hug;
@@ -359,6 +361,128 @@ void LayoutEngine::layoutFrame(NodeId id)
         }
         y += lineH[li] + L.counterSpacing;
     }
+}
+
+void LayoutEngine::layoutGrid(NodeId id)
+{
+    const Props& P0 = m_doc.at(id).p;
+    const AutoLayout L = P0.layout;
+    const bool hugW = P0.layoutChild.sizingH == LayoutSizing::Hug;
+    const bool hugH = P0.layoutChild.sizingV == LayoutSizing::Hug;
+    const int cols = std::max(1, L.gridColumns);
+    const float gapX = L.spacing, gapY = L.counterSpacing;
+
+    std::vector<NodeId> items;
+    for (NodeId c : m_doc.at(id).children) {
+        const Props& cp = m_doc.at(c).p;
+        if (cp.visible && !cp.layoutChild.absolute)
+            items.push_back(c);
+    }
+
+    // Auto-place row by row into the first free cells that fit each child's span.
+    struct Cell {
+        int col, row, cs, rs;
+    };
+    std::vector<Cell> cells;
+    std::vector<std::vector<bool>> used;
+    auto free = [&](int r, int c, int rs, int cs) {
+        for (int y = r; y < r + rs; ++y)
+            for (int x = c; x < c + cs; ++x)
+                if (y < int(used.size()) && used[y][x])
+                    return false;
+        return true;
+    };
+    int r = 0, c = 0;
+    for (NodeId it : items) {
+        const LayoutChild& lc = m_doc.at(it).p.layoutChild;
+        const int cs = std::clamp(lc.colSpan, 1, cols), rs = std::max(1, lc.rowSpan);
+        while (true) {
+            if (c + cs > cols) {
+                c = 0;
+                ++r;
+                continue;
+            }
+            if (free(r, c, rs, cs))
+                break;
+            if (++c >= cols) {
+                c = 0;
+                ++r;
+            }
+        }
+        while (int(used.size()) < r + rs)
+            used.emplace_back(cols, false);
+        for (int y = r; y < r + rs; ++y)
+            for (int x = c; x < c + cs; ++x)
+                used[y][x] = true;
+        cells.push_back({c, r, cs, rs});
+        c += cs;
+    }
+    const int rows = std::max({L.gridRows, int(used.size()), 1});
+
+    // Tracks: equal fractions of a fixed frame, or the largest single-span child when hugging.
+    const float innerW = P0.width - L.padL - L.padR, innerH = P0.height - L.padT - L.padB;
+    std::vector<float> colW(cols, 0), rowH(rows, 0);
+    auto size = [&](NodeId it) { return layoutSize(m_doc.at(it).p); };
+    for (size_t i = 0; i < items.size(); ++i) {
+        const LayoutChild& lc = m_doc.at(items[i]).p.layoutChild;
+        if (cells[i].cs == 1 && lc.sizingH != LayoutSizing::Fill)
+            colW[cells[i].col] = std::max(colW[cells[i].col], size(items[i]).width());
+        if (cells[i].rs == 1 && lc.sizingV != LayoutSizing::Fill)
+            rowH[cells[i].row] = std::max(rowH[cells[i].row], size(items[i]).height());
+    }
+    if (!hugW)
+        std::fill(colW.begin(), colW.end(), std::max(0.f, (innerW - gapX * (cols - 1)) / cols));
+    if (!hugH && L.gridRows > 0)
+        std::fill(rowH.begin(), rowH.end(), std::max(0.f, (innerH - gapY * (rows - 1)) / rows));
+
+    auto span = [](const std::vector<float>& t, int from, int n, float gap) {
+        float s = gap * (n - 1);
+        for (int k = from; k < from + n && k < int(t.size()); ++k)
+            s += t[k];
+        return s;
+    };
+    auto offset = [](const std::vector<float>& t, int to, float gap) {
+        float s = 0;
+        for (int k = 0; k < to; ++k)
+            s += t[k] + gap;
+        return s;
+    };
+    auto align = [](LayoutAlign a, float room) {
+        return a == LayoutAlign::Center ? room / 2 : a == LayoutAlign::Max ? room : 0.f;
+    };
+    // Fill children stretch over their cells; text heights follow from the width.
+    for (size_t i = 0; i < items.size(); ++i) {
+        const NodeId it = items[i];
+        const Props& cp = m_doc.at(it).p;
+        const float cw = span(colW, cells[i].col, cells[i].cs, gapX), ch = span(rowH, cells[i].row, cells[i].rs, gapY);
+        float w = cp.layoutChild.sizingH == LayoutSizing::Fill ? cw : cp.width;
+        float h = cp.layoutChild.sizingV == LayoutSizing::Fill ? ch : cp.height;
+        w = clampSize(w, cp.layoutChild.minW, cp.layoutChild.maxW);
+        h = clampSize(h, cp.layoutChild.minH, cp.layoutChild.maxH);
+        if (!nearly(w, cp.width) || !nearly(h, cp.height)) {
+            m_doc.resize(it, w, h);
+            afterResize(it);
+        }
+        if (cells[i].rs == 1 && cp.layoutChild.sizingV != LayoutSizing::Fill && (hugH || L.gridRows == 0))
+            rowH[cells[i].row] = std::max(rowH[cells[i].row], size(it).height());
+    }
+    for (size_t i = 0; i < items.size(); ++i) {
+        const NodeId it = items[i];
+        const SkSize s = size(it);
+        const float cw = span(colW, cells[i].col, cells[i].cs, gapX), ch = span(rowH, cells[i].row, cells[i].rs, gapY);
+        place(it, L.padL + offset(colW, cells[i].col, gapX) + align(L.primaryAlign, cw - s.width()),
+            L.padT + offset(rowH, cells[i].row, gapY) + align(L.counterAlign, ch - s.height()));
+    }
+    float w = P0.width, h = P0.height;
+    if (hugW)
+        w = L.padL + L.padR + span(colW, 0, cols, gapX);
+    if (hugH || L.gridRows == 0)
+        h = hugH ? L.padT + L.padB + span(rowH, 0, rows, gapY) : h;
+    const LayoutChild& lc = m_doc.at(id).p.layoutChild;
+    w = clampSize(w, lc.minW, lc.maxW);
+    h = clampSize(h, lc.minH, lc.maxH);
+    if (!nearly(w, m_doc.at(id).p.width) || !nearly(h, m_doc.at(id).p.height))
+        m_doc.resize(id, w, h);
 }
 
 } // namespace drav

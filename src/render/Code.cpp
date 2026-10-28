@@ -81,7 +81,12 @@ QString css(const Document& doc, NodeId id)
         add(QStringLiteral("width"), boundField("w", px(p.width)));
     if (!hugH && p.layoutChild.sizingV != LayoutSizing::Fill)
         add(QStringLiteral("height"), boundField("h", px(p.height)));
-    if (inFlex) {
+    if (inFlex && parent->p.layout.mode == LayoutMode::Grid) {
+        if (p.layoutChild.colSpan > 1)
+            add(QStringLiteral("grid-column"), QStringLiteral("span %1").arg(p.layoutChild.colSpan));
+        if (p.layoutChild.rowSpan > 1)
+            add(QStringLiteral("grid-row"), QStringLiteral("span %1").arg(p.layoutChild.rowSpan));
+    } else if (inFlex) {
         const bool horiz = parent->p.layout.mode == LayoutMode::Horizontal;
         const LayoutSizing primary = horiz ? p.layoutChild.sizingH : p.layoutChild.sizingV;
         const LayoutSizing counter = horiz ? p.layoutChild.sizingV : p.layoutChild.sizingH;
@@ -103,7 +108,17 @@ QString css(const Document& doc, NodeId id)
     if (p.layoutChild.maxH > 0) add(QStringLiteral("max-height"), px(p.layoutChild.maxH));
 
     // Auto layout
-    if (p.layout.mode != LayoutMode::None) {
+    if (p.layout.mode == LayoutMode::Grid) {
+        const AutoLayout& l = p.layout;
+        add(QStringLiteral("display"), QStringLiteral("grid"));
+        add(QStringLiteral("grid-template-columns"), QStringLiteral("repeat(%1, %2)").arg(l.gridColumns).arg(p.layoutChild.sizingH == LayoutSizing::Hug ? QStringLiteral("auto") : QStringLiteral("1fr")));
+        if (l.gridRows > 0)
+            add(QStringLiteral("grid-template-rows"), QStringLiteral("repeat(%1, %2)").arg(l.gridRows).arg(p.layoutChild.sizingV == LayoutSizing::Hug ? QStringLiteral("auto") : QStringLiteral("1fr")));
+        if (l.spacing || l.counterSpacing)
+            add(QStringLiteral("gap"), px(l.counterSpacing) + QLatin1Char(' ') + px(l.spacing));
+        if (l.padL || l.padT || l.padR || l.padB)
+            add(QStringLiteral("padding"), QStringList{px(l.padT), px(l.padR), px(l.padB), px(l.padL)}.join(QLatin1Char(' ')));
+    } else if (p.layout.mode != LayoutMode::None) {
         const AutoLayout& l = p.layout;
         add(QStringLiteral("display"), QStringLiteral("flex"));
         if (l.mode == LayoutMode::Vertical)

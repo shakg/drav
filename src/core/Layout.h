@@ -26,6 +26,7 @@ private:
     void intrinsic(NodeId id);
     void afterResize(NodeId id);
     void place(NodeId child, float x, float y);
+    void layoutGrid(NodeId id);
 
     Document& m_doc;
 };

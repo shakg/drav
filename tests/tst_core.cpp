@@ -791,6 +791,46 @@ private slots:
         QCOMPARE(d2.at(t).p.textStyle.axes, d.at(t).p.textStyle.axes);
     }
 
+    void gridLayout()
+    {
+        Document d;
+        d.begin("grid");
+        NodeId g = d.create(NodeType::Frame, page(d));
+        d.resize(g, 220, 100);
+        Props& gp = d.edit(g);
+        gp.layout.mode = LayoutMode::Grid;
+        gp.layout.gridColumns = 2;
+        gp.layout.spacing = 20;        // column gap
+        gp.layout.counterSpacing = 10; // row gap
+        gp.layout.padL = gp.layout.padR = gp.layout.padT = gp.layout.padB = 10;
+        gp.layoutChild.sizingV = LayoutSizing::Hug;
+        NodeId a = rect(d, g, 0, 0, 30, 40);
+        NodeId b = rect(d, g, 0, 0, 30, 20);
+        NodeId wide = rect(d, g, 0, 0, 30, 30);
+        d.edit(wide).layoutChild.colSpan = 2;
+        d.edit(wide).layoutChild.sizingH = LayoutSizing::Fill;
+        NodeId c = rect(d, g, 0, 0, 30, 30);
+        d.edit(c).layoutChild.sizingH = LayoutSizing::Fill;
+        d.commit();
+        // Columns: (220 - 20 padding - 20 gap) / 2 = 90.
+        QCOMPARE(d.at(a).p.transform.getTranslateX(), 10.f);
+        QCOMPARE(d.at(b).p.transform.getTranslateX(), 120.f);
+        QCOMPARE(d.at(wide).p.transform.getTranslateY(), 60.f); // row 0 is 40 tall + 10 gap
+        QCOMPARE(d.at(wide).p.width, 200.f);
+        QCOMPARE(d.at(c).p.width, 90.f);
+        QCOMPARE(d.at(c).p.transform.getTranslateY(), 100.f);
+        QCOMPARE(d.at(g).p.height, 140.f); // 10 + 40 + 10 + 30 + 10 + 30 + 10
+
+        // Hugging width sizes columns to content.
+        d.begin("hug");
+        d.edit(g).layoutChild.sizingH = LayoutSizing::Hug;
+        d.edit(wide).layoutChild.sizingH = LayoutSizing::Fixed;
+        d.edit(c).layoutChild.sizingH = LayoutSizing::Fixed;
+        d.resize(c, 30, 30);
+        d.commit();
+        QCOMPARE(d.at(g).p.width, 10.f + 30 + 20 + 30 + 10);
+    }
+
     void smoothRectGeometry()
     {
         SkPath p = smoothRect(100, 100, {20, 20, 20, 20}, 0.6f);

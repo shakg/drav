@@ -363,6 +363,33 @@ void Editor::addAutoLayoutTo(NodeId frame, LayoutMode forced)
         sumH += cp.height;
     }
     const float spanX = u.width() - sumW, spanY = u.height() - sumH;
+    if (forced == LayoutMode::Grid) {
+        // Row-major order; the first row's length sets the column count.
+        auto box = [&](NodeId c) { const Props& cp = m_doc->at(c).p; return cp.transform.mapRect(SkRect::MakeWH(cp.width, cp.height)); };
+        std::sort(kids.begin(), kids.end(), [&](NodeId a, NodeId b) {
+            const SkRect ra = box(a), rb = box(b);
+            if (std::fabs(ra.centerY() - rb.centerY()) > std::min(ra.height(), rb.height()) / 2)
+                return ra.centerY() < rb.centerY();
+            return ra.left() < rb.left();
+        });
+        int cols = 0;
+        for (NodeId c : kids)
+            if (!kids.empty() && std::fabs(box(c).centerY() - box(kids.front()).centerY()) <= box(kids.front()).height() / 2)
+                ++cols;
+        for (int i = 0; i < (int)kids.size(); ++i)
+            m_doc->move(kids[i], frame, i);
+        const float w = f.p.width, h = f.p.height;
+        Props& p = m_doc->edit(frame);
+        p.layout.mode = LayoutMode::Grid;
+        p.layout.gridColumns = std::max(1, cols ? cols : 2);
+        p.layout.spacing = p.layout.counterSpacing = 10;
+        p.layout.padL = kids.empty() ? 10 : std::max(0.f, std::round(u.left()));
+        p.layout.padT = kids.empty() ? 10 : std::max(0.f, std::round(u.top()));
+        p.layout.padR = kids.empty() ? 10 : std::max(0.f, std::round(w - u.right()));
+        p.layout.padB = kids.empty() ? 10 : std::max(0.f, std::round(h - u.bottom()));
+        p.layoutChild.sizingV = LayoutSizing::Hug;
+        return;
+    }
     const bool horiz = forced == LayoutMode::None ? (kids.size() > 1 && spanX > spanY) : forced == LayoutMode::Horizontal;
     auto key = [&](NodeId c) {
         const Props& cp = m_doc->at(c).p;

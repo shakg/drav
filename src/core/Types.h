@@ -147,7 +147,7 @@ struct Effect {
 enum class ConstraintH : std::uint8_t { Left, Right, LeftRight, Center, Scale };
 enum class ConstraintV : std::uint8_t { Top, Bottom, TopBottom, Center, Scale };
 
-enum class LayoutMode : std::uint8_t { None, Horizontal, Vertical };
+enum class LayoutMode : std::uint8_t { None, Horizontal, Vertical, Grid };
 enum class LayoutAlign : std::uint8_t { Min, Center, Max, SpaceBetween, Baseline };
 enum class LayoutSizing : std::uint8_t { Fixed, Hug, Fill };
 
@@ -161,6 +161,10 @@ struct AutoLayout {
     LayoutAlign counterAlign = LayoutAlign::Min;
     bool reverseZ = false;
     bool strokesIncluded = false;
+    // Grid: column count and row count (0 = as many rows as needed). Gaps: spacing (columns),
+    // counterSpacing (rows). primaryAlign/counterAlign place children inside their cells.
+    int gridColumns = 2;
+    int gridRows = 0;
     bool operator==(const AutoLayout&) const = default;
 };
 
@@ -170,6 +174,7 @@ struct LayoutChild {
     LayoutSizing sizingV = LayoutSizing::Fixed;
     bool absolute = false;
     float minW = 0, maxW = 0, minH = 0, maxH = 0; // 0 = unset
+    int colSpan = 1, rowSpan = 1; // in a grid
     bool operator==(const LayoutChild&) const = default;
 };
 

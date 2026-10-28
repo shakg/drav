@@ -188,6 +188,13 @@ ScrollView {
                 }
             }
             RowLayout {
+                visible: root.p.parentLayoutMode === "GRID" && root.p.absolute !== true
+                Layout.fillWidth: true
+                Text { text: qsTr("Span"); color: Theme.textDim; font.pixelSize: Theme.fontSize }
+                NumberField { Layout.fillWidth: true; label: qsTr("C"); key: "colSpan"; value: root.p.colSpan; decimals: 0; minimum: 1; maximum: 64 }
+                NumberField { Layout.fillWidth: true; label: qsTr("R"); key: "rowSpan"; value: root.p.rowSpan; decimals: 0; minimum: 1; maximum: 64 }
+            }
+            RowLayout {
                 visible: root.p.inAutoLayout === true
                 IconButton { iconName: "target"; checked: root.p.absolute === true; tip: qsTr("Absolute position"); onClicked: editor.setProp("absolute", !root.p.absolute) }
                 Text { text: qsTr("Ignore auto layout"); color: Theme.textDim; font.pixelSize: Theme.fontSize }
@@ -229,6 +236,7 @@ ScrollView {
                 IconButton { iconName: "layoutV"; checked: root.p.layoutMode === "VERTICAL"; tip: qsTr("Vertical"); onClicked: editor.setProp("layoutMode", "VERTICAL") }
                 IconButton { iconName: "layoutH"; checked: root.p.layoutMode === "HORIZONTAL" && !root.p.layoutWrap; tip: qsTr("Horizontal"); onClicked: { editor.setProp("layoutMode", "HORIZONTAL"); editor.setProp("layoutWrap", false) } }
                 IconButton { iconName: "wrap"; checked: root.p.layoutMode === "HORIZONTAL" && root.p.layoutWrap === true; tip: qsTr("Wrap"); onClicked: { editor.setProp("layoutMode", "HORIZONTAL"); editor.setProp("layoutWrap", true) } }
+                IconButton { iconName: "gridLayout"; checked: root.p.layoutMode === "GRID"; tip: qsTr("Grid"); onClicked: editor.setProp("layoutMode", "GRID") }
                 Item { Layout.fillWidth: true }
             }
             RowLayout {
@@ -243,7 +251,7 @@ ScrollView {
                         model: 9
                         Rectangle {
                             required property int index
-                            readonly property bool horiz: root.p.layoutMode === "HORIZONTAL"
+                            readonly property bool horiz: root.p.layoutMode === "HORIZONTAL" || root.p.layoutMode === "GRID"
                             readonly property string prim: ["MIN", "CENTER", "MAX"][horiz ? index % 3 : Math.floor(index / 3)]
                             readonly property string cnt: ["MIN", "CENTER", "MAX"][horiz ? Math.floor(index / 3) : index % 3]
                             readonly property bool active: (root.p.primaryAlign === prim || root.p.primaryAlign === "SPACE_BETWEEN") && root.p.counterAlign === cnt
@@ -276,11 +284,17 @@ ScrollView {
                         value: root.p.primaryAlign === "SPACE_BETWEEN" ? undefined : root.p.spacing
                     }
                     RowLayout {
-                        IconButton { iconName: "distH"; checked: root.p.primaryAlign === "SPACE_BETWEEN"; tip: qsTr("Space between")
+                        IconButton { visible: root.p.layoutMode !== "GRID"; iconName: "distH"; checked: root.p.primaryAlign === "SPACE_BETWEEN"; tip: qsTr("Space between")
                             onClicked: editor.setProp("primaryAlign", root.p.primaryAlign === "SPACE_BETWEEN" ? "MIN" : "SPACE_BETWEEN") }
-                        NumberField { Layout.fillWidth: true; visible: root.p.layoutWrap === true; icon: "spacingV"; key: "counterSpacing"; bindKey: "counterSpacing"; value: root.p.counterSpacing }
+                        NumberField { Layout.fillWidth: true; visible: root.p.layoutWrap === true || root.p.layoutMode === "GRID"; icon: "spacingV"; key: "counterSpacing"; bindKey: "counterSpacing"; value: root.p.counterSpacing }
                     }
                 }
+            }
+            RowLayout {
+                visible: root.p.layoutMode === "GRID"
+                Layout.fillWidth: true
+                NumberField { Layout.fillWidth: true; label: qsTr("C"); key: "gridColumns"; value: root.p.gridColumns; decimals: 0; minimum: 1; maximum: 64 }
+                NumberField { Layout.fillWidth: true; label: qsTr("R"); key: "gridRows"; value: root.p.gridRows; decimals: 0; minimum: 0; maximum: 64; emptyText: qsTr("Auto") }
             }
             GridLayout {
                 visible: root.al

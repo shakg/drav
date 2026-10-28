@@ -86,6 +86,11 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     set("counterAlign", enumName(p.layout.counterAlign, kLayoutAligns));
     set("strokesIncluded", p.layout.strokesIncluded);
     set("reverseZ", p.layout.reverseZ);
+    set("gridColumns", p.layout.gridColumns);
+    set("gridRows", p.layout.gridRows);
+    set("colSpan", p.layoutChild.colSpan);
+    set("rowSpan", p.layoutChild.rowSpan);
+    set("parentLayoutMode", n.parent ? enumName(d.at(n.parent).p.layout.mode, kLayoutModes) : QString());
     set("sizingH", enumName(p.layoutChild.sizingH, kSizing));
     set("sizingV", enumName(p.layoutChild.sizingV, kSizing));
     set("absolute", p.layoutChild.absolute);
@@ -508,6 +513,14 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         e().layout.strokesIncluded = v.toBool();
     } else if (k == QLatin1String("reverseZ")) {
         e().layout.reverseZ = v.toBool();
+    } else if (k == QLatin1String("gridColumns")) {
+        e().layout.gridColumns = std::clamp(v.toInt(), 1, 64);
+    } else if (k == QLatin1String("gridRows")) {
+        e().layout.gridRows = std::clamp(v.toInt(), 0, 64);
+    } else if (k == QLatin1String("colSpan")) {
+        e().layoutChild.colSpan = std::clamp(v.toInt(), 1, 64);
+    } else if (k == QLatin1String("rowSpan")) {
+        e().layoutChild.rowSpan = std::clamp(v.toInt(), 1, 64);
     } else if (k == QLatin1String("sizingH") || k == QLatin1String("sizingV")) {
         LayoutSizing s = enumValue(v, kSizing, LayoutSizing::Fixed);
         const bool h = k == QLatin1String("sizingH");

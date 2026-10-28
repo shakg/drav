@@ -340,12 +340,12 @@ QCborMap propsToCbor(const Props& p)
         m[K("layout")] = QCborMap{{K("mode"), int(l.mode)}, {K("wrap"), l.wrap}, {K("spacing"), l.spacing},
             {K("cspacing"), l.counterSpacing}, {K("pad"), QCborArray{l.padL, l.padT, l.padR, l.padB}},
             {K("palign"), int(l.primaryAlign)}, {K("calign"), int(l.counterAlign)}, {K("reverseZ"), l.reverseZ},
-            {K("strokesIncluded"), l.strokesIncluded}};
+            {K("strokesIncluded"), l.strokesIncluded}, {K("gridCols"), l.gridColumns}, {K("gridRows"), l.gridRows}};
     }
     {
         const LayoutChild& c = p.layoutChild;
         m[K("lchild")] = QCborMap{{K("sh"), int(c.sizingH)}, {K("sv"), int(c.sizingV)}, {K("abs"), c.absolute},
-            {K("min"), QCborArray{c.minW, c.minH}}, {K("max"), QCborArray{c.maxW, c.maxH}}};
+            {K("min"), QCborArray{c.minW, c.minH}}, {K("max"), QCborArray{c.maxW, c.maxH}}, {K("span"), QCborArray{c.colSpan, c.rowSpan}}};
     }
     if (!p.grids.empty())
         m[K("grids")] = grids(p.grids);
@@ -493,6 +493,8 @@ Props propsFromCbor(const QCborMap& m)
         p.layout.counterAlign = LayoutAlign(integer(l, "calign"));
         p.layout.reverseZ = flag(l, "reverseZ");
         p.layout.strokesIncluded = flag(l, "strokesIncluded");
+        p.layout.gridColumns = integer(l, "gridCols", 2);
+        p.layout.gridRows = integer(l, "gridRows");
     }
     {
         QCborMap c = m.value(K("lchild")).toMap();
@@ -507,6 +509,11 @@ Props propsFromCbor(const QCborMap& m)
         if (mx.size() == 2) {
             p.layoutChild.maxW = mx[0].toDouble();
             p.layoutChild.maxH = mx[1].toDouble();
+        }
+        const QCborArray span = c.value(K("span")).toArray();
+        if (span.size() == 2) {
+            p.layoutChild.colSpan = int(span[0].toInteger());
+            p.layoutChild.rowSpan = int(span[1].toInteger());
         }
     }
     p.grids = grids(m.value(K("grids")));
