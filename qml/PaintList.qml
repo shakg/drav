@@ -107,6 +107,14 @@ Section {
                         font.pixelSize: Theme.fontSize
                     }
                     NumberField {
+                        visible: root.key === "strokes" && root.paints.length > 1
+                        Layout.preferredWidth: 44
+                        icon: "minus"
+                        value: row.modelData.strokeWeight > 0 ? row.modelData.strokeWeight : editor.props.strokeWeight
+                        minimum: 0
+                        onCommitted: v => { const l = root.copyList(); l[row.realIndex].strokeWeight = v; root.update(l, false) }
+                    }
+                    NumberField {
                         Layout.preferredWidth: 56
                         value: row.modelData.opacity
                         displayScale: 100

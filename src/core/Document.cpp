@@ -783,6 +783,7 @@ void Document::updateDerived()
     applyComponentProps();
     resolveBindings();
     runLayout();
+    syncTextPaths();
     m_dirty.clear();
     m_userEdited.clear();
     m_deriving = false;
@@ -1137,6 +1138,27 @@ NodeId Document::cloneFromMain(NodeId mainNode, NodeId parent, int index)
     for (NodeId k : at(mainNode).children)
         cloneFromMain(k, c, -1);
     return c;
+}
+
+void Document::syncTextPaths()
+{
+    // Text on a path sits exactly over its shape (same transform and box) and follows it.
+    for (auto& [id, n] : m_nodes) {
+        if (!n->p.textPath || !n->attached)
+            continue;
+        const Node* target = find(n->p.textPath);
+        if (!target || !target->attached || target->parent != n->parent)
+            continue;
+        const Props& tp = target->p;
+        if (n->p.transform != tp.transform || n->p.width != tp.width || n->p.height != tp.height
+            || n->p.textStyle.autoResize != TextAutoResize::None) {
+            Props& p = edit(id);
+            p.transform = tp.transform;
+            p.width = tp.width;
+            p.height = tp.height;
+            p.textStyle.autoResize = TextAutoResize::None;
+        }
+    }
 }
 
 void Document::runLayout()

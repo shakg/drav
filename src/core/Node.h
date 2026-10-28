@@ -74,6 +74,8 @@ struct Props {
 
     QString text;
     TextStyle textStyle;
+    NodeId textPath = kNoNode; // text set along this sibling shape's outline
+    float textPathOffset = 0;  // start position along the path, 0..1
     std::vector<TextRun> textRuns;        // sorted, non-overlapping character overrides
     std::vector<ParagraphAttr> paragraphs; // per paragraph (split at '\n'); missing = defaults
 

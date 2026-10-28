@@ -209,6 +209,9 @@ public:
     Q_INVOKABLE void flatten();
     Q_INVOKABLE void outlineStroke();
     Q_INVOKABLE void useAsMask();
+    // With a text layer and a shape selected: sets the text along the shape's outline.
+    Q_INVOKABLE void attachTextToPath();
+    Q_INVOKABLE void detachTextFromPath();
     Q_INVOKABLE void align(const QString& how);
     Q_INVOKABLE void distribute(bool horizontal);
     Q_INVOKABLE void bringForward();

@@ -1,5 +1,7 @@
 #include "Geometry.h"
 
+#include <include/core/SkPathMeasure.h>
+
 #include "Document.h"
 
 #include <include/core/SkPathBuilder.h>
@@ -233,6 +235,53 @@ SkPath strokeOutline(const Props& p, const SkPath& fill)
     if (Op(out, fill, p.stroke.align == StrokeAlign::Inside ? kIntersect_SkPathOp : kDifference_SkPathOp, &clipped))
         return clipped;
     return out;
+}
+
+SkPath variableWidthStroke(const SkPath& path, float weight, const std::vector<SkPoint>& profile)
+{
+    auto widthAt = [&](float t) {
+        if (profile.empty())
+            return 1.f;
+        if (t <= profile.front().x())
+            return profile.front().y();
+        for (size_t i = 1; i < profile.size(); ++i)
+            if (t <= profile[i].x()) {
+                const SkPoint a = profile[i - 1], b = profile[i];
+                const float u = b.x() > a.x() ? (t - a.x()) / (b.x() - a.x()) : 0;
+                return a.y() + (b.y() - a.y()) * u;
+            }
+        return profile.back().y();
+    };
+    SkPathBuilder out;
+    SkPathMeasure measure(path, false);
+    do {
+        const float len = measure.getLength();
+        if (len <= 0)
+            continue;
+        const int steps = std::clamp(int(len / 2), 8, 2000);
+        std::vector<SkPoint> left, right;
+        for (int i = 0; i <= steps; ++i) {
+            const float d = len * i / steps;
+            SkPoint pos;
+            SkVector tan;
+            if (!measure.getPosTan(d, &pos, &tan))
+                continue;
+            const float hw = weight * widthAt(float(i) / steps) / 2;
+            const SkVector n = {-tan.y() * hw, tan.x() * hw};
+            left.push_back(pos + n);
+            right.push_back(pos - n);
+        }
+        if (left.size() < 2)
+            continue;
+        out.moveTo(left.front());
+        for (size_t i = 1; i < left.size(); ++i)
+            out.lineTo(left[i]);
+        for (auto it = right.rbegin(); it != right.rend(); ++it)
+            out.lineTo(*it);
+        out.close();
+    } while (measure.nextContour());
+    out.setFillType(SkPathFillType::kWinding);
+    return out.detach();
 }
 
 VectorData vectorFromPath(const SkPath& path)

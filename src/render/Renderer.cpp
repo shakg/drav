@@ -1,5 +1,9 @@
 #include "Renderer.h"
 
+#include <include/core/SkTextBlob.h>
+
+#include <include/core/SkRSXform.h>
+
 #include <include/core/SkColorFilter.h>
 #include <include/effects/SkColorMatrix.h>
 
@@ -529,8 +533,69 @@ void Renderer::drawFills(SkCanvas* c, const Node& n, const SkPath& path, float e
     }
 }
 
+void Renderer::drawTextOnPath(SkCanvas* c, const Node& n, float extraAlpha)
+{
+    // Glyphs placed one by one along the target shape's outline, baseline on the path.
+    const Props& p = n.p;
+    const Node& target = m_doc.at(p.textPath);
+    SkMatrix toText;
+    if (!p.transform.invert(&toText))
+        return;
+    toText.preConcat(target.p.transform);
+    const SkPath path = fillPath(m_doc, target.id).makeTransform(toText);
+    SkContourMeasureIter iter(path, false);
+    sk_sp<SkContourMeasure> cm = iter.next();
+    if (!cm)
+        return;
+    const SkFont font = text::font(p.textStyle);
+    const QByteArray utf8 = text::applyCase(p.text, p.textStyle.textCase).toUtf8();
+    const int count = font.countText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8);
+    std::vector<SkGlyphID> glyphs(count);
+    font.textToGlyphs(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, glyphs.data(), count);
+    std::vector<float> widths(count);
+    font.getWidths(glyphs.data(), count, widths.data());
+    const float spacing = p.textStyle.letterSpacing / 100.f * p.textStyle.size;
+    float total = 0;
+    for (float w : widths)
+        total += w + spacing;
+    const float len = cm->length();
+    float d = p.textPathOffset * len;
+    if (p.textStyle.alignH == TextAlignH::Center)
+        d += (len - total) / 2;
+    else if (p.textStyle.alignH == TextAlignH::Right)
+        d += len - total;
+    std::vector<SkRSXform> xf;
+    std::vector<SkGlyphID> placed;
+    for (int i = 0; i < count; ++i) {
+        const float mid = d + widths[i] / 2;
+        d += widths[i] + spacing;
+        if (mid < 0 || mid > len)
+            continue;
+        SkPoint pos;
+        SkVector tan;
+        if (!cm->getPosTan(mid, &pos, &tan))
+            continue;
+        const SkPoint origin = pos - tan * (widths[i] / 2);
+        xf.push_back(SkRSXform::Make(tan.x(), tan.y(), origin.x(), origin.y()));
+        placed.push_back(glyphs[i]);
+    }
+    if (placed.empty())
+        return;
+    auto blob = SkTextBlob::MakeFromRSXform(placed.data(), placed.size() * sizeof(SkGlyphID), xf.data(), font,
+        SkTextEncoding::kGlyphID);
+    for (const Paint& f : p.fills) {
+        SkPaint paint;
+        if (makePaint(f, p, extraAlpha, &paint))
+            c->drawTextBlob(blob, 0, 0, paint);
+    }
+}
+
 void Renderer::drawText(SkCanvas* c, const Node& n, float extraAlpha)
 {
+    if (n.p.textPath && m_doc.isAttached(n.p.textPath) && m_doc.at(n.p.textPath).parent == n.parent) {
+        drawTextOnPath(c, n, extraAlpha);
+        return;
+    }
     auto* para = paragraph(n.id);
     const float y = text::verticalOffset(n.p, para->getHeight());
     const int visible = countVisible(n.p.fills);
@@ -572,8 +637,15 @@ void Renderer::drawStrokes(SkCanvas* c, const Node& n, const SkPath& path, float
         SkPaint sp;
         if (!makePaint(s, p, extraAlpha, &sp))
             continue;
+        const float weight = s.strokeWeight > 0 ? s.strokeWeight : p.stroke.weight;
+        if (!p.stroke.widthProfile.empty()) {
+            // Variable width: fill the profiled outline (always centered on the path).
+            sp.setStyle(SkPaint::kFill_Style);
+            c->drawPath(variableWidthStroke(path, weight, p.stroke.widthProfile), sp);
+            continue;
+        }
         sp.setStyle(SkPaint::kStroke_Style);
-        sp.setStrokeWidth(align == StrokeAlign::Center ? p.stroke.weight : p.stroke.weight * 2);
+        sp.setStrokeWidth(align == StrokeAlign::Center ? weight : weight * 2);
         sp.setStrokeJoin(p.stroke.join == StrokeJoin::Round ? SkPaint::kRound_Join
                 : p.stroke.join == StrokeJoin::Bevel        ? SkPaint::kBevel_Join
                                                             : SkPaint::kMiter_Join);

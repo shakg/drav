@@ -51,6 +51,7 @@ private:
     void drawFills(SkCanvas* c, const Node& n, const SkPath& path, float extraAlpha);
     void drawStrokes(SkCanvas* c, const Node& n, const SkPath& path, float extraAlpha);
     void drawText(SkCanvas* c, const Node& n, float extraAlpha);
+    void drawTextOnPath(SkCanvas* c, const Node& n, float extraAlpha);
     void drawDropShadows(SkCanvas* c, const Node& n, const SkPath& path);
     void drawInnerShadows(SkCanvas* c, const Node& n, const SkPath& path);
     bool makePaint(const Paint& paint, const Props& p, float extraAlpha, SkPaint* out);

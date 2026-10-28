@@ -134,6 +134,40 @@ QString Editor::inspectCode() const
     return parts.join(QStringLiteral("\n\n"));
 }
 
+void Editor::attachTextToPath()
+{
+    auto sel = selected();
+    NodeId textId = kNoNode, shape = kNoNode;
+    for (NodeId id : sel)
+        (m_doc->at(id).type() == NodeType::Text ? textId : shape) = id;
+    if (sel.size() != 2 || !textId || !shape || isContainer(m_doc->at(shape).type()))
+        return;
+    m_doc->breakMerge();
+    m_doc->begin(tr("Text on path"));
+    if (m_doc->at(textId).parent != m_doc->at(shape).parent)
+        m_doc->move(textId, m_doc->at(shape).parent, m_doc->indexOf(shape) + 1);
+    Props& p = m_doc->edit(textId);
+    p.textPath = shape;
+    p.textPathOffset = 0;
+    p.textStyle.autoResize = TextAutoResize::None;
+    select({textId});
+    m_doc->commit();
+}
+
+void Editor::detachTextFromPath()
+{
+    m_doc->breakMerge();
+    m_doc->begin(tr("Detach text from path"));
+    for (NodeId id : selected())
+        if (m_doc->at(id).p.textPath) {
+            Props& p = m_doc->edit(id);
+            p.textPath = kNoNode;
+            p.textStyle.autoResize = TextAutoResize::WidthAndHeight;
+            p.transform = SkMatrix::Translate(p.transform.getTranslateX(), p.transform.getTranslateY());
+        }
+    m_doc->commit();
+}
+
 void Editor::cut()
 {
     copy();

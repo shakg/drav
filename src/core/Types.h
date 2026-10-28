@@ -99,6 +99,7 @@ struct Paint {
     float exposure = 0, contrast = 0, saturation = 0, temperature = 0, tint = 0, highlights = 0, shadows = 0;
     // Crop mode: the part of the image (normalized 0..1 coordinates) shown in the layer's box.
     SkRect crop = SkRect::MakeWH(1, 1);
+    float strokeWeight = 0; // strokes: this stroke's own weight (0 = the layer's weight)
     QString colorVar; // bound color variable id (solid paints)
     bool hasAdjustments() const
     {
@@ -126,6 +127,8 @@ struct StrokeStyle {
     StrokeJoin join = StrokeJoin::Miter;
     float miterLimit = 4.f;
     std::vector<float> dashes; // empty = solid
+    // Variable width: (position along the path 0..1, width multiplier) pairs, sorted. Empty = uniform.
+    std::vector<SkPoint> widthProfile;
     bool operator==(const StrokeStyle&) const = default;
 };
 

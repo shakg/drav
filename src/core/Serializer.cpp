@@ -86,6 +86,8 @@ QCborMap paintToCbor(const Paint& p)
     }
     if (!p.colorVar.isEmpty())
         m[K("colorVar")] = p.colorVar;
+    if (p.strokeWeight > 0)
+        m[K("strokeWeight")] = p.strokeWeight;
     return m;
 }
 Paint paintFromCbor(const QCborMap& m)
@@ -121,6 +123,7 @@ Paint paintFromCbor(const QCborMap& m)
             p.crop = SkRect::MakeXYWH(a[0].toDouble(), a[1].toDouble(), a[2].toDouble(), a[3].toDouble());
     }
     p.colorVar = str(m, "colorVar");
+    p.strokeWeight = num(m, "strokeWeight");
     return p;
 }
 QCborArray paints(const std::vector<Paint>& v)
@@ -374,8 +377,15 @@ QCborMap propsToCbor(const Props& p)
         QCborArray dashes;
         for (float d : s.dashes)
             dashes.append(d);
-        m[K("stroke")] = QCborMap{{K("weight"), s.weight}, {K("align"), int(s.align)}, {K("startCap"), int(s.startCap)},
+        QCborMap sm{{K("weight"), s.weight}, {K("align"), int(s.align)}, {K("startCap"), int(s.startCap)},
             {K("endCap"), int(s.endCap)}, {K("join"), int(s.join)}, {K("miter"), s.miterLimit}, {K("dashes"), dashes}};
+        if (!s.widthProfile.empty()) {
+            QCborArray prof;
+            for (SkPoint w : s.widthProfile)
+                prof.append(point(w));
+            sm[K("profile")] = prof;
+        }
+        m[K("stroke")] = sm;
     }
     m[K("effects")] = effects(p.effects);
     m[K("corners")] = QCborArray{p.corners.tl, p.corners.tr, p.corners.br, p.corners.bl};
@@ -406,6 +416,10 @@ QCborMap propsToCbor(const Props& p)
     if (p.type == NodeType::Text) {
         m[K("text")] = p.text;
         m[K("font")] = textStyleToCbor(p.textStyle);
+        if (p.textPath) {
+            m[K("textPath")] = qint64(p.textPath);
+            m[K("textPathOffset")] = p.textPathOffset;
+        }
         if (!p.textRuns.empty()) {
             QCborArray runs;
             for (const TextRun& r : p.textRuns) {
@@ -517,6 +531,8 @@ Props propsFromCbor(const QCborMap& m)
         p.stroke.miterLimit = num(s, "miter", 4);
         for (const QCborValue& d : s.value(K("dashes")).toArray())
             p.stroke.dashes.push_back(float(d.toDouble()));
+        for (const QCborValue& w : s.value(K("profile")).toArray())
+            p.stroke.widthProfile.push_back(point(w));
     }
     p.effects = effects(m.value(K("effects")));
     {
@@ -578,6 +594,8 @@ Props propsFromCbor(const QCborMap& m)
     if (m.contains(K("vector")))
         p.vector = vectorFromCbor(m.value(K("vector")).toMap());
     p.text = str(m, "text");
+    p.textPath = NodeId(m.value(K("textPath")).toInteger());
+    p.textPathOffset = num(m, "textPathOffset");
     if (m.contains(K("font")))
         p.textStyle = textStyleFromCbor(m.value(K("font")).toMap());
     for (const QCborValue& rv : m.value(K("runs")).toArray()) {

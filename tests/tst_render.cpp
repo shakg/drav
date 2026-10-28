@@ -84,6 +84,42 @@ private slots:
         QCOMPARE(bm.getColor(75, 30), SK_ColorWHITE); // below the branch: not filled
     }
 
+    void drawingExtrasRender()
+    {
+        Document d;
+        d.begin("x");
+        NodeId f = d.create(NodeType::Frame, d.currentPage());
+        d.resize(f, 220, 120);
+        d.edit(f).fills = {Paint::solid(SkColors::kWhite)};
+        // A line tapering from 20 px to nothing.
+        Props lp;
+        lp.type = NodeType::Line;
+        lp.width = 200;
+        lp.height = 0;
+        lp.strokes = {Paint::solid(SkColors::kBlack)};
+        lp.stroke.weight = 20;
+        lp.stroke.widthProfile = {{0, 1}, {1, 0}};
+        NodeId line = d.create(lp, f);
+        d.setPosition(line, 10, 30);
+        // Two strokes with their own weights: the thick red one under the thin blue one.
+        Props rp;
+        rp.type = NodeType::Rectangle;
+        rp.width = rp.height = 40;
+        Paint red = Paint::solid(SkColors::kRed), blue = Paint::solid(SkColors::kBlue);
+        red.strokeWeight = 16;
+        blue.strokeWeight = 2;
+        rp.strokes = {red, blue};
+        rp.stroke.align = StrokeAlign::Center;
+        NodeId r = d.create(rp, f);
+        d.setPosition(r, 100, 60);
+        d.commit();
+        SkBitmap bm = decode(exporter::exportNode(d, f, exporter::Format::PNG, 1));
+        QCOMPARE(bm.getColor(15, 38), SK_ColorBLACK);  // near the start: wide
+        QCOMPARE(bm.getColor(200, 38), SK_ColorWHITE); // near the end: thin, nothing 8 px off the line
+        QCOMPARE(bm.getColor(95, 80), SK_ColorRED);    // 5 px outside the box: only the 16 px stroke
+        QCOMPARE(bm.getColor(100, 80), SK_ColorBLUE);  // on the edge: the 2 px stroke on top
+    }
+
     void allFeaturesRender()
     {
         // Smoke test: every node type and effect renders without crashing.

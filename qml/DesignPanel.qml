@@ -418,6 +418,18 @@ ScrollView {
                     model: [{ value: "MITER", text: qsTr("Miter join") }, { value: "BEVEL", text: qsTr("Bevel join") }, { value: "ROUND", text: qsTr("Round join") }]
                     onPicked: v => editor.setProp("strokeJoin", v)
                 }
+                Dropdown {
+                    Layout.fillWidth: true
+                    Layout.columnSpan: 2
+                    readonly property string current_: JSON.stringify(root.p.widthProfile || [])
+                    current: current_
+                    model: [{ value: "[]", text: qsTr("Uniform width") },
+                        { value: "[[0,1],[1,0]]", text: qsTr("Taper end") },
+                        { value: "[[0,0],[1,1]]", text: qsTr("Taper start") },
+                        { value: "[[0,0],[0.5,1],[1,0]]", text: qsTr("Taper both ends") },
+                        { value: "[[0,0.3],[0.5,1.4],[1,0.3]]", text: qsTr("Bulge") }]
+                    onPicked: v => editor.setProp("widthProfile", JSON.parse(v))
+                }
                 TextBox {
                     Layout.fillWidth: true
                     placeholder: qsTr("Dash, gap")

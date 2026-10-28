@@ -181,6 +181,7 @@ private:
     bool applyPropRefs(NodeId id); // returns true if a nested instance was swapped
     void computePropRefs(NodeId id, Props& next) const;
     void runLayout();
+    void syncTextPaths();
 
     std::unordered_map<NodeId, std::unique_ptr<Node>> m_nodes;
     NodeId m_root = kNoNode;

@@ -18,6 +18,8 @@ void init(const QStringList& extraFontFiles = {});
 sk_sp<skia::textlayout::FontCollection> fonts();
 sk_sp<SkFontMgr> fontMgr();
 QStringList families();
+// Font for a layer's base text style (family, weight, italic, size, variable axes).
+SkFont font(const TextStyle& ts);
 // Font for editor chrome drawn on the canvas (labels, measurements).
 SkFont uiFont(float size, bool bold = false);
 

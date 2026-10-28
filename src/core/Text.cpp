@@ -96,6 +96,30 @@ QStringList families()
     return state().families;
 }
 
+SkFont font(const TextStyle& ts)
+{
+    const SkFontStyle style(ts.weight, SkFontStyle::kNormal_Width, ts.italic ? SkFontStyle::kItalic_Slant : SkFontStyle::kUpright_Slant);
+    auto tfs = fonts()->findTypefaces({SkString(ts.family.toUtf8().constData())}, style);
+    if (tfs.empty())
+        tfs = fonts()->findTypefaces({SkString("Inter")}, style);
+    sk_sp<SkTypeface> tf = tfs.empty() ? fontMgr()->legacyMakeTypeface(nullptr, style) : tfs.front();
+    if (tf) {
+        std::vector<SkFontArguments::VariationPosition::Coordinate> coords{{SkSetFourByteTag('w', 'g', 'h', 't'), float(ts.weight)}};
+        for (auto it = ts.axes.begin(); it != ts.axes.end(); ++it) {
+            const QByteArray tag = it.key().toLatin1().leftJustified(4, ' ', true);
+            coords.push_back({SkSetFourByteTag(tag[0], tag[1], tag[2], tag[3]), it.value()});
+        }
+        SkFontArguments args;
+        args.setVariationDesignPosition({coords.data(), int(coords.size())});
+        if (sk_sp<SkTypeface> v = tf->makeClone(args))
+            tf = v;
+    }
+    SkFont f(tf, ts.size);
+    f.setSubpixel(true);
+    f.setEdging(SkFont::Edging::kAntiAlias);
+    return f;
+}
+
 SkFont uiFont(float size, bool bold)
 {
     static sk_sp<SkTypeface> regular, semibold;

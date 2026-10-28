@@ -23,6 +23,14 @@ Section {
         }
     ]
     StyleChip { slot: "text"; styleId: root.p.textStyleId || "" }
+    RowLayout {
+        visible: !!root.p.textPath
+        Layout.fillWidth: true
+        Icon { name: "textPath"; size: 14; color: Theme.textDim }
+        Text { text: qsTr("On path"); color: Theme.textDim; font.pixelSize: Theme.fontSize }
+        NumberField { Layout.fillWidth: true; label: qsTr("Start"); key: "textPathOffset"; value: root.p.textPathOffset; displayScale: 100; suffix: "%"; decimals: 0; minimum: 0; maximum: 1 }
+        IconButton { iconName: "detach"; tip: qsTr("Detach from path"); onClicked: editor.detachTextFromPath() }
+    }
     readonly property var weights: [
         { value: 100, text: "Thin" }, { value: 200, text: "Extra Light" }, { value: 300, text: "Light" },
         { value: 400, text: "Regular" }, { value: 500, text: "Medium" }, { value: 600, text: "Semi Bold" },

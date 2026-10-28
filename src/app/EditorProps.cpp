@@ -71,6 +71,10 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     for (float f : p.stroke.dashes)
         dashes << f;
     set("dashes", dashes);
+    QVariantList profile;
+    for (SkPoint w : p.stroke.widthProfile)
+        profile << QVariant(QVariantList{w.x(), w.y()});
+    set("widthProfile", profile);
     set("effects", effectsToList(p.effects));
     set("constraintH", enumName(p.constraintH, kConsH));
     set("constraintV", enumName(p.constraintV, kConsV));
@@ -104,6 +108,8 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     if (p.type == NodeType::Text) {
         const TextStyle& t = p.textStyle;
         set("characters", p.text);
+        set("textPath", qint64(p.textPath));
+        set("textPathOffset", p.textPathOffset);
         set("fontFamily", t.family);
         set("fontWeight", t.weight);
         set("italic", t.italic);
@@ -462,6 +468,17 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         e().stroke.startCap = enumValue(v, kCaps, StrokeCap::None);
     } else if (k == QLatin1String("endCap")) {
         e().stroke.endCap = enumValue(v, kCaps, StrokeCap::None);
+    } else if (k == QLatin1String("widthProfile")) {
+        std::vector<SkPoint> prof;
+        for (const QVariant& x : v.toList()) {
+            const QVariantList pt = x.toList();
+            if (pt.size() == 2)
+                prof.push_back({std::clamp(pt[0].toFloat(), 0.f, 1.f), std::max(0.f, pt[1].toFloat())});
+        }
+        std::sort(prof.begin(), prof.end(), [](SkPoint a, SkPoint b) { return a.x() < b.x(); });
+        e().stroke.widthProfile = prof;
+    } else if (cur.type == NodeType::Text && k == QLatin1String("textPathOffset")) {
+        e().textPathOffset = std::clamp(f, 0.f, 1.f);
     } else if (k == QLatin1String("dashes")) {
         std::vector<float> d;
         for (const QVariant& x : v.toList())

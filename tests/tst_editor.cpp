@@ -810,6 +810,42 @@ private slots:
         QCOMPARE(ed->pages()[0].toMap()["name"].toString(), QStringLiteral("Page 1"));
     }
 
+    void textOnPath()
+    {
+        ed->setTool("ellipse");
+        drag({100, 100}, {300, 300});
+        NodeId circle = only().id;
+        ed->setTool("text");
+        click({500, 500});
+        type("Around and around");
+        key(Qt::Key_Escape);
+        NodeId t = only().id;
+        ed->selectNode(qint64(circle), true);
+        QCOMPARE(doc().selection().size(), size_t(2));
+        ed->attachTextToPath();
+        QCOMPARE(doc().at(t).p.textPath, circle);
+        QCOMPARE(doc().worldBounds(t), doc().worldBounds(circle));
+        // The text follows its shape.
+        ed->selectNode(qint64(circle), false);
+        ed->nudge(50, 0);
+        QCOMPARE(doc().worldBounds(t).left(), 150.f);
+        Document d2;
+        QVERIFY(io::load(d2, io::save(doc())));
+        QCOMPARE(d2.at(t).p.textPath, circle);
+        // Glyphs are drawn just outside the circle (centre 250,200, radius 100), starting at its right.
+        int dark = 0;
+        for (int deg = 0; deg <= 120; deg += 2)
+            for (float r : {104.f, 108.f, 112.f}) {
+                const float a = deg * 3.14159265f / 180;
+                const SkColor4f c = ed->sampleColor({250 + r * std::cos(a), 200 + r * std::sin(a)});
+                dark += c.fR < 0.3f && c.fG < 0.3f && c.fB < 0.3f;
+            }
+        QVERIFY(dark > 10);
+        ed->selectNode(qint64(t), false);
+        ed->detachTextFromPath();
+        QCOMPARE(doc().at(t).p.textPath, kNoNode);
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

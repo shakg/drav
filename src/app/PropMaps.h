@@ -83,6 +83,7 @@ inline QVariantMap paintToMap(const Paint& p)
         {QStringLiteral("highlights"), p.highlights},
         {QStringLiteral("shadows"), p.shadows},
         {QStringLiteral("crop"), QVariantList{p.crop.left(), p.crop.top(), p.crop.width(), p.crop.height()}},
+        {QStringLiteral("strokeWeight"), p.strokeWeight},
     };
 }
 
@@ -122,6 +123,7 @@ inline Paint paintFromMap(const QVariantMap& m)
     p.tint = m.value(QStringLiteral("tint"), 0).toFloat();
     p.highlights = m.value(QStringLiteral("highlights"), 0).toFloat();
     p.shadows = m.value(QStringLiteral("shadows"), 0).toFloat();
+    p.strokeWeight = std::max(0.f, m.value(QStringLiteral("strokeWeight"), 0).toFloat());
     const QVariantList crop = m.value(QStringLiteral("crop")).toList();
     if (crop.size() == 4)
         p.crop = SkRect::MakeXYWH(crop[0].toFloat(), crop[1].toFloat(), crop[2].toFloat(), crop[3].toFloat());

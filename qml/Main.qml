@@ -303,6 +303,7 @@ ApplicationWindow {
         MenuItem { text: qsTr("Flatten"); enabled: editor.selectionCount > 0; onTriggered: editor.flatten() }
         MenuItem { text: qsTr("Outline stroke"); enabled: editor.selectionCount > 0; onTriggered: editor.outlineStroke() }
         MenuItem { text: qsTr("Use as mask"); enabled: editor.selectionCount > 0; onTriggered: editor.useAsMask() }
+        MenuItem { text: qsTr("Put text on path"); enabled: editor.selectionCount === 2; onTriggered: editor.attachTextToPath() }
         MenuSeparator {}
         MenuItem { text: qsTr("Show/Hide"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleVisible() }
         MenuItem { text: qsTr("Lock/Unlock"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleLocked() }
