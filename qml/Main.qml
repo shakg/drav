@@ -173,7 +173,20 @@ ApplicationWindow {
                     Layout.preferredHeight: 48
                     Layout.leftMargin: 16
                     Layout.rightMargin: 8
-                    Text { text: qsTr("Design"); color: Theme.text; font.pixelSize: Theme.fontSize; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                    Repeater {
+                        model: [qsTr("Design"), qsTr("Inspect")]
+                        Text {
+                            required property string modelData
+                            required property int index
+                            text: modelData
+                            color: rightTabs.currentIndex === index ? Theme.text : Theme.textDim
+                            font.pixelSize: Theme.fontSize
+                            font.weight: rightTabs.currentIndex === index ? Font.DemiBold : Font.Normal
+                            rightPadding: 12
+                            MouseArea { anchors.fill: parent; onClicked: rightTabs.currentIndex = index }
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
                     Text {
                         text: editor.fps > 0 ? Math.round(editor.fps) + " fps" : ""
                         color: Theme.textFaint
@@ -188,7 +201,14 @@ ApplicationWindow {
                     }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.panelBorder }
-                DesignPanel { Layout.fillWidth: true; Layout.fillHeight: true }
+                StackLayout {
+                    id: rightTabs
+                    objectName: "rightTabs"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    DesignPanel { }
+                    InspectPanel { }
+                }
             }
         }
     }
@@ -245,6 +265,13 @@ ApplicationWindow {
     Menu {
         id: contextMenu
         MenuItem { text: qsTr("Copy"); onTriggered: editor.copy() }
+        Menu {
+            title: qsTr("Copy as")
+            enabled: editor.selectionCount > 0
+            MenuItem { text: qsTr("PNG"); onTriggered: editor.copyAs("PNG") }
+            MenuItem { text: qsTr("SVG"); onTriggered: editor.copyAs("SVG") }
+            MenuItem { text: qsTr("CSS"); onTriggered: editor.copyAs("CSS") }
+        }
         MenuItem { text: qsTr("Paste here"); onTriggered: editor.paste() }
         MenuItem { text: qsTr("Duplicate"); enabled: editor.selectionCount > 0; onTriggered: editor.duplicate() }
         MenuItem { text: qsTr("Delete"); enabled: editor.selectionCount > 0; onTriggered: editor.deleteSelection() }

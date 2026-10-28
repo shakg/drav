@@ -18,7 +18,8 @@ set(DRAV_QML
     ColorArea.qml Checker.qml Swatch.qml PaintPopup.qml PaintList.qml EffectsSection.qml TextSection.qml
     ExportSection.qml DesignPanel.qml LayersPanel.qml PagesList.qml AssetsPanel.qml Toolbar.qml MainMenu.qml
     VariablePicker.qml StylePreview.qml StylePicker.qml StyleChip.qml StyleEditor.qml LocalAssets.qml VariablesWindow.qml
-    VariableCell.qml ComponentPropsSection.qml FindBar.qml RenameDialog.qml VersionsWindow.qml)
+    VariableCell.qml ComponentPropsSection.qml FindBar.qml RenameDialog.qml VersionsWindow.qml
+    InspectPanel.qml)
 list(TRANSFORM DRAV_QML PREPEND "${PROJECT_SOURCE_DIR}/qml/")
 set_source_files_properties("${PROJECT_SOURCE_DIR}/qml/Theme.qml" PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 foreach(f IN LISTS DRAV_QML)

@@ -184,6 +184,10 @@ public:
     Q_INVOKABLE void cut();
     Q_INVOKABLE void paste();
     Q_INVOKABLE void pasteInPlace();
+    // format: "SVG" (markup as text), "PNG" (2x image) or "CSS".
+    Q_INVOKABLE void copyAs(const QString& format);
+    // Read-only code for the first selected layer and its direct children ("CSS").
+    Q_INVOKABLE QString inspectCode() const;
     Q_INVOKABLE void duplicate();
     Q_INVOKABLE void deleteSelection();
     Q_INVOKABLE void group();

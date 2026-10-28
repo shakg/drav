@@ -6,6 +6,8 @@
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
+#include "render/Code.h"
+#include "render/Export.h"
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -92,6 +94,44 @@ void Editor::copy()
     else
         delete mime;
     setStatus(tr("Copied %n layer(s)", nullptr, int(sel.size())));
+}
+
+void Editor::copyAs(const QString& format)
+{
+    auto sel = zSorted(*m_doc, topLevelSelection());
+    if (sel.empty())
+        return;
+    auto* mime = new QMimeData;
+    if (format == QLatin1String("CSS")) {
+        QStringList parts;
+        for (NodeId id : sel)
+            parts << code::css(*m_doc, id);
+        mime->setText(parts.join(QStringLiteral("\n\n")));
+    } else if (format == QLatin1String("SVG")) {
+        const QByteArray svgData = exporter::exportNode(*m_doc, sel.front(), exporter::Format::SVG);
+        mime->setData(QStringLiteral("image/svg+xml"), svgData);
+        mime->setText(QString::fromUtf8(svgData));
+    } else {
+        const QByteArray png = exporter::exportNode(*m_doc, sel.front(), exporter::Format::PNG, 2);
+        mime->setData(QStringLiteral("image/png"), png);
+        mime->setImageData(QImage::fromData(png, "PNG"));
+    }
+    if (auto* cb = QGuiApplication::clipboard())
+        cb->setMimeData(mime);
+    else
+        delete mime;
+    setStatus(tr("Copied as %1").arg(format));
+}
+
+QString Editor::inspectCode() const
+{
+    const auto& sel = m_doc->selection();
+    if (sel.empty())
+        return {};
+    QStringList parts{code::css(*m_doc, sel.front())};
+    for (NodeId c : m_doc->at(sel.front()).children)
+        parts << code::css(*m_doc, c);
+    return parts.join(QStringLiteral("\n\n"));
 }
 
 void Editor::cut()

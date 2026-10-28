@@ -579,6 +579,23 @@ private slots:
         ed->discardChanges();
     }
 
+    void inspectCss()
+    {
+        ed->setTool("frame");
+        drag({100, 100}, {300, 200});
+        ed->addAutoLayout();
+        ed->setProp("cornerRadius", 8);
+        ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::red)}}});
+        const QString css = ed->inspectCode();
+        QVERIFY(css.contains("display: flex;"));
+        QVERIFY(css.contains("border-radius: 8px;"));
+        QVERIFY(css.contains("background: #FF0000;"));
+        QString coll = ed->addCollection("Theme");
+        QString v = ed->addVariable(coll, "COLOR", "Brand/Primary");
+        ed->bindVariable("fills/0", v);
+        QVERIFY(ed->inspectCode().contains("var(--brand-primary, #FFFFFF)"));
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;
