@@ -33,6 +33,7 @@ std::uint32_t diffOverrideMask(const Props& a, const Props& b)
     if (a.text != b.text) m |= OvText;
     if (a.textStyle != b.textStyle || a.textStyleId != b.textStyleId) m |= OvTextStyle;
     if (a.bindings != b.bindings) m |= OvBindings;
+    if (a.propValues != b.propValues) m |= OvPropValues;
     if (a.corners != b.corners || a.cornerSmoothing != b.cornerSmoothing) m |= OvCorners;
     if (a.layout != b.layout || a.clipsContent != b.clipsContent) m |= OvLayout;
     if (a.width != b.width || a.height != b.height) m |= OvSize;
@@ -65,6 +66,7 @@ void copyGroups(Props& dst, const Props& src, std::uint32_t mask)
         dst.textStyleId = src.textStyleId;
     }
     if (mask & OvBindings) dst.bindings = src.bindings;
+    if (mask & OvPropValues) dst.propValues = src.propValues;
     if (mask & OvCorners) {
         dst.corners = src.corners;
         dst.cornerSmoothing = src.cornerSmoothing;
@@ -86,7 +88,7 @@ void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRo
 {
     std::uint32_t mask = ~ov;
     if (isRoot)
-        mask &= ~(OvComponent | OvVariantProps);
+        mask &= ~(OvComponent | OvVariantProps | OvPropValues);
     copyGroups(dst, src, mask);
     dst.grids = src.grids;
     dst.gridStyle = src.gridStyle;
@@ -105,6 +107,7 @@ void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRo
         dst.exports = src.exports;
         dst.constrainProportions = src.constrainProportions;
         dst.variableModes = src.variableModes;
+        dst.propRefs = src.propRefs;
     }
 }
 

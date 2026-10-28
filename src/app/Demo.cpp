@@ -138,6 +138,12 @@ void Editor::loadDemo()
     d.setPosition(setId, 0, -140);
     d.move(primary, setId);
     d.move(secondary, setId);
+    {
+        ComponentProp label{Library::newId(), QStringLiteral("Label"), ComponentPropType::Text, QStringLiteral("Get started"), {}};
+        d.edit(setId).componentProps = {label};
+        for (NodeId b : {primary, secondary})
+            d.edit(d.at(b).children.front()).propRefs.insert(QStringLiteral("characters"), label.id);
+    }
 
     // ---- Card built with nested auto layout ----
     Props card = frame(QStringLiteral("Card"), 360, 10, SkColors::kWhite);
@@ -195,8 +201,8 @@ void Editor::loadDemo()
     inst.componentId = secondary;
     NodeId second = d.create(inst, rowId);
     d.updateDerived();
-    // Instance override: different label.
-    d.edit(d.at(second).children.front()).text = QStringLiteral("Learn more");
+    // Instance property value: different label.
+    d.edit(second).propValues.insert(d.at(setId).p.componentProps.front().id, QStringLiteral("Learn more"));
     d.setPosition(cardId, 0, 0);
 
     // The same card in the dark mode of the theme.

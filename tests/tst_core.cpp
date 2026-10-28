@@ -606,6 +606,93 @@ private slots:
         QVERIFY(!vars::resolve(lib, QStringLiteral("a"), {}).has_value());
     }
 
+    void componentProperties()
+    {
+        Document d;
+        d.begin("setup");
+        // Two icon components for the swap property.
+        NodeId iconA = d.create(NodeType::Component, page(d));
+        d.edit(iconA).name = QStringLiteral("Icon/A");
+        rect(d, iconA, 0, 0, 10, 10);
+        NodeId iconB = d.create(NodeType::Component, page(d));
+        d.edit(iconB).name = QStringLiteral("Icon/B");
+        rect(d, iconB, 0, 0, 20, 20);
+        rect(d, iconB, 0, 0, 5, 5);
+
+        NodeId button = d.create(NodeType::Component, page(d));
+        NodeId label = d.create(NodeType::Text, button);
+        d.edit(label).text = QStringLiteral("Button");
+        Props ni;
+        ni.type = NodeType::Instance;
+        ni.componentId = iconA;
+        NodeId icon = d.create(ni, button);
+        ComponentProp text{QStringLiteral("p-text"), QStringLiteral("Label"), ComponentPropType::Text, QStringLiteral("Button"), {}};
+        ComponentProp show{QStringLiteral("p-show"), QStringLiteral("Show icon"), ComponentPropType::Boolean, QStringLiteral("true"), {}};
+        ComponentProp swap{QStringLiteral("p-icon"), QStringLiteral("Icon"), ComponentPropType::InstanceSwap,
+            QString::number(iconA), {iconA, iconB}};
+        d.edit(button).componentProps = {text, show, swap};
+        d.edit(label).propRefs.insert(QStringLiteral("characters"), text.id);
+        d.edit(icon).propRefs.insert(QStringLiteral("visible"), show.id);
+        d.edit(icon).propRefs.insert(QStringLiteral("mainComponent"), swap.id);
+
+        Props ip;
+        ip.type = NodeType::Instance;
+        ip.componentId = button;
+        NodeId inst = d.create(ip, page(d));
+        d.commit();
+        NodeId iLabel = d.at(inst).children.at(0);
+        NodeId iIcon = d.at(inst).children.at(1);
+        QCOMPARE(d.at(iLabel).p.text, QStringLiteral("Button"));
+        QVERIFY(d.at(iIcon).p.visible);
+        QCOMPARE(d.at(iIcon).p.componentId, iconA);
+
+        d.begin("set props");
+        d.edit(inst).propValues = {{text.id, QStringLiteral("Save")}, {show.id, QStringLiteral("false")},
+            {swap.id, QString::number(iconB)}};
+        d.commit();
+        QCOMPARE(d.at(iLabel).p.text, QStringLiteral("Save"));
+        QVERIFY(!d.at(iIcon).p.visible);
+        QCOMPARE(d.at(iIcon).p.componentId, iconB);
+        QCOMPARE(d.at(iIcon).children.size(), size_t(2));
+        QCOMPARE(d.at(iLabel).p.overrides & OvText, 0u);
+        QCOMPARE(d.at(iIcon).p.overrides & (OvComponent | OvVisible), 0u);
+
+        // An unrelated main edit keeps the swapped nested instance (same node, same children).
+        const NodeId swappedChild = d.at(iIcon).children.at(0);
+        d.begin("main edit");
+        d.edit(button).name = QStringLiteral("Button!");
+        d.edit(label).fills = {Paint::solid(SkColors::kRed)};
+        d.commit();
+        QCOMPARE(d.at(iIcon).children.at(0), swappedChild);
+        QCOMPARE(d.at(iLabel).p.text, QStringLiteral("Save"));
+
+        // Typing into the instance's label sets the property value instead of an override.
+        d.begin("type");
+        d.edit(iLabel).text = QStringLiteral("Submit");
+        d.commit();
+        QCOMPARE(d.at(inst).p.propValues.value(text.id), QStringLiteral("Submit"));
+        QCOMPARE(d.at(iLabel).p.overrides & OvText, 0u);
+
+        // A second instance without values follows the default; changing the default updates it.
+        d.begin("second");
+        NodeId inst2 = d.create(ip, page(d));
+        d.commit();
+        NodeId i2Label = d.at(inst2).children.at(0);
+        QCOMPARE(d.at(i2Label).p.text, QStringLiteral("Button"));
+        d.begin("default");
+        d.edit(button).componentProps[0].defaultValue = QStringLiteral("Go");
+        d.commit();
+        QCOMPARE(d.at(i2Label).p.text, QStringLiteral("Go"));
+        QCOMPARE(d.at(label).p.text, QStringLiteral("Go"));
+        QCOMPARE(d.at(iLabel).p.text, QStringLiteral("Submit"));
+
+        Document d2;
+        QVERIFY(io::load(d2, io::save(d)));
+        QCOMPARE(d2.at(button).p.componentProps, d.at(button).p.componentProps);
+        QCOMPARE(d2.at(inst).p.propValues, d.at(inst).p.propValues);
+        QCOMPARE(d2.at(label).p.propRefs, d.at(label).p.propRefs);
+    }
+
     void smoothRectGeometry()
     {
         SkPath p = smoothRect(100, 100, {20, 20, 20, 20}, 0.6f);

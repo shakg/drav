@@ -354,6 +354,21 @@ QCborMap propsToCbor(const Props& p)
             m[QLatin1String(styleKeys[i])] = *styleIds[i];
     if (!p.bindings.isEmpty())
         m[K("bindings")] = stringMap(p.bindings);
+    if (!p.componentProps.empty()) {
+        QCborArray defs;
+        for (const ComponentProp& d : p.componentProps) {
+            QCborArray preferred;
+            for (auto id : d.preferred)
+                preferred.append(qint64(id));
+            defs.append(QCborMap{{K("id"), d.id}, {K("name"), d.name}, {K("type"), int(d.type)},
+                {K("default"), d.defaultValue}, {K("preferred"), preferred}});
+        }
+        m[K("componentProps")] = defs;
+    }
+    if (!p.propRefs.isEmpty())
+        m[K("propRefs")] = stringMap(p.propRefs);
+    if (!p.propValues.isEmpty())
+        m[K("propValues")] = stringMap(p.propValues);
     if (!p.variableModes.isEmpty())
         m[K("variableModes")] = stringMap(p.variableModes);
     if (p.library && !p.library->empty())
@@ -465,6 +480,19 @@ Props propsFromCbor(const QCborMap& m)
     p.effectStyle = str(m, "effectStyle");
     p.gridStyle = str(m, "gridStyle");
     p.bindings = stringMap(m.value(K("bindings")));
+    for (const QCborValue& dv : m.value(K("componentProps")).toArray()) {
+        const QCborMap dm = dv.toMap();
+        ComponentProp d;
+        d.id = str(dm, "id");
+        d.name = str(dm, "name");
+        d.type = ComponentPropType(integer(dm, "type"));
+        d.defaultValue = str(dm, "default");
+        for (const QCborValue& x : dm.value(K("preferred")).toArray())
+            d.preferred.push_back(NodeId(x.toInteger()));
+        p.componentProps.push_back(d);
+    }
+    p.propRefs = stringMap(m.value(K("propRefs")));
+    p.propValues = stringMap(m.value(K("propValues")));
     p.variableModes = stringMap(m.value(K("variableModes")));
     if (m.contains(K("library")))
         p.library = std::make_shared<Library>(libraryFromCbor(m.value(K("library")).toMap()));

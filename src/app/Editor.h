@@ -248,6 +248,17 @@ public:
     Q_INVOKABLE void setVariableMode(const QString& collection, const QString& mode); // "" = inherit
     Q_INVOKABLE QVariant resolveVariable(const QString& id) const; // in the selection's context
 
+    // ---- component properties (EditorComponents.cpp) ----
+    // type: "BOOLEAN", "TEXT", "INSTANCE_SWAP". Adds to the selected component or component set.
+    Q_INVOKABLE QString addComponentProp(const QString& type, const QString& name);
+    // Defines a property on the enclosing component (or its set) from the selected layer's current
+    // value and links the layer to it. field: "visible", "characters" or "mainComponent".
+    Q_INVOKABLE QString createLinkedProp(const QString& field, const QString& name);
+    Q_INVOKABLE void editComponentProp(const QString& id, const QVariantMap& changes); // name, default, preferred
+    Q_INVOKABLE void deleteComponentProp(const QString& id);
+    Q_INVOKABLE void linkComponentProp(const QString& field, const QString& propId); // "" unlinks
+    Q_INVOKABLE void setInstanceProp(const QString& propId, const QVariant& value);
+
     // ---- files ----
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool open(const QUrl& url);

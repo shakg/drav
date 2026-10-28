@@ -80,6 +80,8 @@ ScrollView {
             }
         }
 
+        ComponentPropsSection { visible: root.has }
+
         // ---------------- Alignment
         Section {
             visible: root.has

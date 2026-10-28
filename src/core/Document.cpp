@@ -728,6 +728,7 @@ void Document::updateDerived()
     // resolve in their own context, e.g. a different variable mode).
     resolveBindings();
     syncInstances();
+    applyComponentProps();
     resolveBindings();
     runLayout();
     m_dirty.clear();
@@ -741,6 +742,23 @@ void Document::markOverrides()
         const Node* n = find(id);
         if (!n || !n->attached)
             continue;
+        // A layer linked to a component property: a direct edit sets the property's value
+        // (on the owning instance, or the default when editing the main component).
+        for (auto it = n->p.propRefs.constBegin(); it != n->p.propRefs.constEnd(); ++it) {
+            const NodeId owner = propOwner(id, it.value());
+            if (!owner)
+                continue;
+            const QString now = fieldValue(n->p, it.key());
+            if (now == propValue(owner, it.value()))
+                continue;
+            if (at(owner).type() == NodeType::Instance) {
+                edit(owner).propValues.insert(it.value(), now);
+            } else {
+                for (ComponentProp& d : edit(owner).componentProps)
+                    if (d.id == it.value())
+                        d.defaultValue = now;
+            }
+        }
         NodeId main = mainOf(id);
         if (!main || !exists(main))
             continue;
@@ -751,11 +769,20 @@ void Document::markOverrides()
             continue;
         Props cur = n->p;
         vars::alignDriven(cur, at(main).p);
+        // Property-driven fields follow their property, not an override.
+        for (auto it = cur.propRefs.constBegin(); it != cur.propRefs.constEnd(); ++it) {
+            if (it.key() == QLatin1String("visible"))
+                cur.visible = at(main).p.visible;
+            else if (it.key() == QLatin1String("characters"))
+                cur.text = at(main).p.text;
+            else if (it.key() == QLatin1String("mainComponent"))
+                cur.componentId = at(main).p.componentId;
+        }
         std::uint32_t mask = diffOverrideMask(at(main).p, cur);
         if (n->type() == NodeType::Instance && at(at(main).parent).type() == NodeType::ComponentSet
             && n->p.name == at(at(main).parent).p.name)
             mask &= ~OvName;
-        if (n->type() == NodeType::Instance && n->p.componentId != at(main).p.componentId && n->p.sourceId)
+        if (n->type() == NodeType::Instance && cur.componentId != at(main).p.componentId && n->p.sourceId)
             mask |= OvComponent;
         if ((n->p.overrides | mask) != n->p.overrides) {
             // Flag write without re-entering override tracking.
@@ -806,6 +833,131 @@ void Document::resolveBindings()
         if (size && (size->width() != at(id).p.width || size->height() != at(id).p.height))
             resize(id, size->width(), size->height());
     }
+}
+
+std::vector<const ComponentProp*> Document::propDefs(NodeId id) const
+{
+    std::vector<const ComponentProp*> out;
+    const Node* n = find(id);
+    if (!n)
+        return out;
+    if (n->type() == NodeType::Instance)
+        n = find(n->p.componentId);
+    if (!n || !n->attached)
+        return out;
+    for (const ComponentProp& d : n->p.componentProps)
+        out.push_back(&d);
+    if (n->type() == NodeType::Component && n->parent && at(n->parent).type() == NodeType::ComponentSet)
+        for (const ComponentProp& d : at(n->parent).p.componentProps)
+            out.push_back(&d);
+    return out;
+}
+
+NodeId Document::propOwner(NodeId id, const QString& propId) const
+{
+    const Node* n = find(id);
+    for (const Node* a = n && n->parent ? find(n->parent) : nullptr; a && a->type() != NodeType::Page;
+         a = a->parent ? find(a->parent) : nullptr) {
+        const NodeType t = a->type();
+        if (t != NodeType::Instance && t != NodeType::Component && t != NodeType::ComponentSet)
+            continue;
+        for (const ComponentProp* d : propDefs(a->id))
+            if (d->id == propId)
+                return a->id;
+    }
+    return kNoNode;
+}
+
+QString Document::propValue(NodeId owner, const QString& propId) const
+{
+    for (const ComponentProp* d : propDefs(owner))
+        if (d->id == propId) {
+            const Props& p = at(owner).p;
+            return p.type == NodeType::Instance ? p.propValues.value(propId, d->defaultValue) : d->defaultValue;
+        }
+    return {};
+}
+
+QString Document::fieldValue(const Props& p, const QString& field)
+{
+    if (field == QLatin1String("visible"))
+        return p.visible ? QStringLiteral("true") : QStringLiteral("false");
+    if (field == QLatin1String("characters"))
+        return p.text;
+    if (field == QLatin1String("mainComponent"))
+        return QString::number(p.componentId);
+    return {};
+}
+
+void Document::applyComponentProps()
+{
+    // Dirty subtrees, plus every instance of a component whose definitions may have changed.
+    std::vector<NodeId> roots;
+    std::unordered_set<NodeId> seen;
+    auto add = [&](NodeId id) {
+        if (seen.insert(id).second)
+            roots.push_back(id);
+    };
+    bool any = false;
+    for (NodeId id : m_dirty) {
+        const Node* n = find(id);
+        if (!n || !n->attached)
+            continue;
+        add(id);
+        if (n->type() == NodeType::Component || n->type() == NodeType::ComponentSet) {
+            any = true;
+            std::vector<NodeId> comps = n->type() == NodeType::Component ? std::vector<NodeId>{id} : n->children;
+            for (NodeId c : comps)
+                for (NodeId i : instancesOf(c))
+                    add(i);
+        }
+    }
+    (void)any;
+    for (NodeId r : roots)
+        if (isAttached(r))
+            applyComponentProps(r);
+}
+
+void Document::applyComponentProps(NodeId id)
+{
+    if (!at(id).p.propRefs.isEmpty())
+        applyPropRefs(id);
+    const auto kids = at(id).children; // may change when a nested instance is swapped
+    for (NodeId c : kids)
+        if (isAttached(c))
+            applyComponentProps(c);
+}
+
+void Document::computePropRefs(NodeId id, Props& next) const
+{
+    for (auto it = next.propRefs.constBegin(); it != next.propRefs.constEnd(); ++it) {
+        const NodeId owner = propOwner(id, it.value());
+        if (!owner)
+            continue;
+        const QString v = propValue(owner, it.value());
+        if (it.key() == QLatin1String("visible")) {
+            next.visible = v != QLatin1String("false");
+        } else if (it.key() == QLatin1String("characters") && next.type == NodeType::Text) {
+            next.text = v;
+        } else if (it.key() == QLatin1String("mainComponent") && next.type == NodeType::Instance) {
+            const NodeId comp = NodeId(v.toULongLong());
+            if (comp && isAttached(comp) && at(comp).type() == NodeType::Component && !isAncestor(comp, id))
+                next.componentId = comp;
+        }
+    }
+}
+
+bool Document::applyPropRefs(NodeId id)
+{
+    const Props& cur = at(id).p;
+    Props next = cur;
+    computePropRefs(id, next);
+    const bool swapped = next.componentId != cur.componentId;
+    if (!(next == cur))
+        edit(id) = next;
+    if (swapped)
+        syncInstance(id);
+    return swapped;
 }
 
 void Document::syncInstances()
@@ -862,6 +1014,10 @@ void Document::syncInstance(NodeId inst)
             next.name = mainParent.p.name;
         next.type = NodeType::Instance;
         next.componentId = comp;
+        next.propRefs = in.p.propRefs; // links come from the outer main's layer, not the component
+        if (!next.propRefs.isEmpty())
+            computePropRefs(inst, next);
+        next.componentId = comp;
         if (!(next == in.p))
             edit(inst) = next;
     }
@@ -895,9 +1051,13 @@ void Document::syncChildren(NodeId instNode, NodeId mainNode)
             next.overrides = ov;
             if (ov & OvComponent)
                 next.componentId = cur.componentId;
+            // Property-driven fields (and swaps) come from the owning instance, not from main.
+            const bool swapProp = next.propRefs.contains(QStringLiteral("mainComponent"));
+            if (!next.propRefs.isEmpty())
+                computePropRefs(c, next);
             if (!(next == cur))
                 edit(c) = next;
-            if (at(c).type() == NodeType::Instance && (ov & OvComponent))
+            if (at(c).type() == NodeType::Instance && ((ov & OvComponent) || (swapProp && next.componentId != mp.componentId)))
                 syncInstance(c);
             else
                 syncChildren(c, mk);

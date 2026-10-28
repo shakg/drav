@@ -352,6 +352,37 @@ private slots:
         QCOMPARE(doc().at(frame).p.fills.at(0).color, (SkColor4f{1, 0, 0, 1}));
     }
 
+    void componentPropertiesWorkflow()
+    {
+        ed->setTool("rect");
+        drag({0, 0}, {50, 50});
+        key(Qt::Key_K, Qt::ControlModifier | Qt::AltModifier);
+        NodeId comp = only().id;
+        NodeId shape = doc().at(comp).children[0];
+        ed->selectNode(qint64(shape), false);
+        QVERIFY(ed->props().contains("linkableProps"));
+        QString vis = ed->createLinkedProp("visible", "Show shape");
+        QVERIFY(!vis.isEmpty());
+        QCOMPARE(doc().at(comp).p.componentProps.size(), size_t(1));
+        QCOMPARE(doc().at(shape).p.propRefs.value("visible"), vis);
+
+        ed->placeComponent(qint64(comp));
+        NodeId inst = only().id;
+        QVariantList ip = ed->props().value("instanceProps").toList();
+        QCOMPARE(ip.size(), 1);
+        QCOMPARE(ip[0].toMap().value("value").toString(), QStringLiteral("true"));
+        ed->setInstanceProp(vis, false);
+        QVERIFY(!doc().at(doc().at(inst).children[0]).p.visible);
+        QVERIFY(doc().at(shape).p.visible);
+        ed->undo();
+        QVERIFY(doc().at(doc().at(inst).children[0]).p.visible);
+
+        ed->selectNode(qint64(comp), false);
+        ed->deleteComponentProp(vis);
+        QVERIFY(doc().at(shape).p.propRefs.isEmpty());
+        QVERIFY(doc().at(comp).p.componentProps.empty());
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

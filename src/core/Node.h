@@ -27,6 +27,7 @@ enum OverrideBit : std::uint32_t {
     OvComponent = 1u << 13, // nested instance swapped
     OvVariantProps = 1u << 14,
     OvBindings = 1u << 15,
+    OvPropValues = 1u << 16, // nested instance: component property values
 };
 
 struct Library;
@@ -82,6 +83,9 @@ struct Props {
     std::uint32_t overrides = 0;
     QString description; // component docs
     QMap<QString, QString> variantProps; // instance: chosen values; component: own values (parsed from name)
+    std::vector<ComponentProp> componentProps; // Component / ComponentSet: property definitions
+    QMap<QString, QString> propRefs;   // layer in a component: field ("visible", "characters", "mainComponent") -> prop id
+    QMap<QString, QString> propValues; // Instance: prop id -> value (missing = default)
 
     std::vector<ExportSetting> exports;
 

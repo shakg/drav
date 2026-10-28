@@ -436,6 +436,7 @@ void Editor::detachInstance()
             p.componentId = kNoNode;
             p.overrides = 0;
             p.sourceId = kNoNode;
+            p.propValues.clear();
         }
         // Descendants become plain layers; nested instances become top-level instances of their main.
         std::function<void(NodeId, bool)> rec = [&](NodeId n, bool inNested) {
@@ -443,6 +444,7 @@ void Editor::detachInstance()
                 const Node& cn = m_doc->at(c);
                 if (!inNested) {
                     Props& cp = m_doc->edit(c);
+                    cp.propRefs.clear(); // the properties belonged to the detached component
                     if (cn.type() == NodeType::Instance) {
                         cp.sourceId = kNoNode;
                         rec(c, true);

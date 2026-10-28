@@ -141,6 +141,60 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     set("insideInstance", d.isInsideInstance(id));
     set("description", p.description);
     set("overrideCount", 0);
+    // Component properties
+    static const char* const kPropTypes[] = {"BOOLEAN", "TEXT", "INSTANCE_SWAP"};
+    auto defToMap = [&](const ComponentProp& c) {
+        QVariantList preferred;
+        for (auto x : c.preferred)
+            preferred << QString::number(x);
+        return QVariantMap{{QStringLiteral("id"), c.id}, {QStringLiteral("name"), c.name},
+            {QStringLiteral("type"), QString::fromLatin1(kPropTypes[int(c.type)])},
+            {QStringLiteral("default"), c.defaultValue}, {QStringLiteral("preferred"), preferred}};
+    };
+    auto swapOptions = [&](const ComponentProp& c) {
+        QVariantList opts;
+        std::vector<NodeId> ids(c.preferred.begin(), c.preferred.end());
+        for (NodeId comp : d.allComponents())
+            if (std::find(ids.begin(), ids.end(), comp) == ids.end())
+                ids.push_back(comp);
+        for (NodeId comp : ids) {
+            if (!d.isAttached(comp))
+                continue;
+            const Node& cn = d.at(comp);
+            QString name = cn.p.name;
+            if (d.at(cn.parent).type() == NodeType::ComponentSet)
+                name = d.at(cn.parent).p.name + QStringLiteral(" / ") + name;
+            opts << QVariantMap{{QStringLiteral("value"), QString::number(comp)}, {QStringLiteral("text"), name}};
+        }
+        return opts;
+    };
+    if (p.type == NodeType::Component || p.type == NodeType::ComponentSet) {
+        QVariantList defs;
+        for (const ComponentProp& c : p.componentProps)
+            defs << defToMap(c);
+        set("componentProps", defs);
+    }
+    if (!d.isInsideInstance(id) && p.type != NodeType::ComponentSet && d.componentOf(id) && d.componentOf(id) != id) {
+        QVariantList linkable;
+        for (const ComponentProp* c : d.propDefs(d.componentOf(id)))
+            linkable << defToMap(*c);
+        set("linkableProps", linkable);
+        QVariantMap refs;
+        for (auto it = p.propRefs.begin(); it != p.propRefs.end(); ++it)
+            refs.insert(it.key(), it.value());
+        set("propRefs", refs);
+    }
+    if (p.type == NodeType::Instance) {
+        QVariantList values;
+        for (const ComponentProp* c : d.propDefs(id)) {
+            QVariantMap m = defToMap(*c);
+            m.insert(QStringLiteral("value"), p.propValues.value(c->id, c->defaultValue));
+            if (c->type == ComponentPropType::InstanceSwap)
+                m.insert(QStringLiteral("options"), swapOptions(*c));
+            values << m;
+        }
+        set("instanceProps", values);
+    }
     if (p.type == NodeType::Instance) {
         const bool mainOk = d.isAttached(p.componentId);
         set("mainMissing", !mainOk);

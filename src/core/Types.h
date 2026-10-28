@@ -228,6 +228,18 @@ struct ExportSetting {
     bool operator==(const ExportSetting&) const = default;
 };
 
+// Component properties: defined on a component or component set, linked from layers inside it,
+// set per instance. Values are strings: "true"/"false", the text, or a component's node id.
+enum class ComponentPropType : std::uint8_t { Boolean, Text, InstanceSwap };
+struct ComponentProp {
+    QString id;
+    QString name;
+    ComponentPropType type = ComponentPropType::Boolean;
+    QString defaultValue;
+    std::vector<std::uint64_t> preferred; // instance swap: suggested components
+    bool operator==(const ComponentProp&) const = default;
+};
+
 struct LayoutGrid {
     enum class Kind : std::uint8_t { Grid, Columns, Rows } kind = Kind::Columns;
     int count = 12;
