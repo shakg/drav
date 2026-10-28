@@ -1137,7 +1137,8 @@ void TextEditTool::press(const InputEvent& e)
     if (!doc().isAttached(m_node))
         return;
     SkMatrix w = doc().worldTransform(m_node), inv;
-    w.invert(&inv);
+    if (!w.invert(&inv))
+        return;
     SkPoint lp = inv.mapPoint(e.page);
     const float tol = float(4 / ed.zoom());
     if (!doc().at(m_node).localRect().makeOutset(tol, tol).contains(lp.x(), lp.y())) {
@@ -1447,7 +1448,8 @@ void PencilTool::release(const InputEvent&)
     }
     NodeId parent = ed.parentForNewNode(pts.front());
     SkMatrix pw = doc().worldTransform(parent), inv;
-    pw.invert(&inv);
+    if (!pw.invert(&inv))
+        inv.reset();
     VectorData v;
     v.contours = {c};
     v.transform(inv);
@@ -1579,7 +1581,8 @@ void VectorEditTool::press(const InputEvent& e)
     if (!doc().isAttached(m_node) || e.button != Qt::LeftButton)
         return;
     SkMatrix inv;
-    doc().worldTransform(m_node).invert(&inv);
+    if (!doc().worldTransform(m_node).invert(&inv))
+        return;
     const SkPoint local = inv.mapPoint(e.page);
     Ref r = hit(e.screen);
     if (r.valid()) {
@@ -1643,7 +1646,8 @@ void VectorEditTool::move(const InputEvent& e)
     if (!m_dragging || !(e.buttons & Qt::LeftButton))
         return;
     SkMatrix inv;
-    doc().worldTransform(m_node).invert(&inv);
+    if (!doc().worldTransform(m_node).invert(&inv))
+        return;
     SkPoint local = inv.mapPoint({ed.snapValue(e.page.x()), ed.snapValue(e.page.y())});
     SkVector d = local - m_dragStart;
     VectorData v = m_startData;

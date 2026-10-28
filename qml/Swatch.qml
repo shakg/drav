@@ -13,9 +13,8 @@ Item {
         radius: 2
         visible: !root.isGradient
         border.color: "#55ffffff"
-        color: !root.paint ? "transparent"
-             : root.paint.type === "SOLID" ? Qt.rgba(root.paint.color.r, root.paint.color.g, root.paint.color.b, root.paint.color.a * root.paint.opacity)
-             : "#8a8a8a"
+        color: !root.paint ? "transparent" : root.paint.type === "SOLID" ? root.paint.color : "#8a8a8a"
+        opacity: root.paint && root.paint.opacity !== undefined ? root.paint.opacity : 1
     }
     Canvas {
         anchors.fill: parent

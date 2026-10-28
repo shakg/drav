@@ -730,6 +730,9 @@ void Document::markOverrides()
         if (n->type() == NodeType::Instance && !n->p.sourceId && m_txn && m_txn->created.count(id))
             continue;
         std::uint32_t mask = diffOverrideMask(at(main).p, n->p);
+        if (n->type() == NodeType::Instance && at(at(main).parent).type() == NodeType::ComponentSet
+            && n->p.name == at(at(main).parent).p.name)
+            mask &= ~OvName;
         if (n->type() == NodeType::Instance && n->p.componentId != at(main).p.componentId && n->p.sourceId)
             mask |= OvComponent;
         if ((n->p.overrides | mask) != n->p.overrides) {
@@ -788,6 +791,10 @@ void Document::syncInstance(NodeId inst)
             next.layoutChild.sizingV = cp.layoutChild.sizingV;
         }
         copyNonOverridden(next, cp, in.p.overrides, !in.p.sourceId);
+        // Instances of a variant are named after the component set.
+        const Node& mainParent = at(at(comp).parent);
+        if (!(in.p.overrides & OvName) && mainParent.type() == NodeType::ComponentSet)
+            next.name = mainParent.p.name;
         next.type = NodeType::Instance;
         next.componentId = comp;
         if (!(next == in.p))

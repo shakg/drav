@@ -51,7 +51,8 @@ private:
         int depth;
         bool hasChildren, expanded, visible, locked, selected, parentSelected;
         int component;
-        bool mask, autoLayout;
+        bool mask;
+        int autoLayout; // 0 none, 1 horizontal, 2 vertical
         bool operator==(const Row&) const = default;
     };
     void build(std::vector<Row>& out) const;

@@ -1,0 +1,23 @@
+# Build environment (conda-forge). Everything drav needs except Skia, which scripts/build-skia.sh builds.
+#   micromamba create -f environment.yml && micromamba activate drav
+name: drav
+channels:
+  - conda-forge
+dependencies:
+  - qt6-main=6.8
+  - cmake>=3.24
+  - ninja
+  - pkg-config
+  - gxx_linux-64>=13
+  - gn
+  - libgl-devel
+  - libegl-devel
+  - fontconfig
+  - freetype
+  - harfbuzz
+  - icu
+  - libpng
+  - libjpeg-turbo
+  - libwebp
+  - expat
+  - zlib

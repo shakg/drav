@@ -9,6 +9,10 @@
 #include <QQuickWindow>
 #include <QSurfaceFormat>
 #include <QTimer>
+#include <QElapsedTimer>
+
+#include <cmath>
+#include <memory>
 #include <QUrl>
 
 #include <cstdio>
@@ -52,7 +56,8 @@ int main(int argc, char* argv[])
     QCommandLineOption demo(QStringLiteral("demo"), QStringLiteral("Open the showcase document."));
     QCommandLineOption shot(QStringLiteral("screenshot"), QStringLiteral("Save a window screenshot and quit."), QStringLiteral("png"));
     QCommandLineOption bench(QStringLiteral("bench"), QStringLiteral("Pan/zoom benchmark for N seconds, print FPS, quit."), QStringLiteral("seconds"));
-    cli.addOptions({demo, shot, bench});
+    QCommandLineOption select(QStringLiteral("select"), QStringLiteral("Select a layer by name (\"Name#2\" picks the second match)."), QStringLiteral("name"));
+    cli.addOptions({demo, shot, bench, select});
     cli.process(app);
 
     drav::Editor editor;
@@ -73,6 +78,22 @@ int main(int argc, char* argv[])
             editor.loadDemo();
         else
             editor.newDocument();
+        if (cli.isSet(select)) {
+            QString name = cli.value(select);
+            int skip = 0;
+            if (int hash = name.lastIndexOf(QLatin1Char('#')); hash > 0) {
+                skip = std::max(0, name.mid(hash + 1).toInt() - 1);
+                name.truncate(hash);
+            }
+            drav::NodeId found = drav::kNoNode;
+            editor.doc().walk(editor.doc().currentPage(), [&](const drav::Node& n) {
+                if (!found && n.p.name == name && skip-- == 0)
+                    found = n.id;
+                return !found;
+            });
+            if (found)
+                editor.select({found});
+        }
     });
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
@@ -84,27 +105,30 @@ int main(int argc, char* argv[])
         });
     }
     if (cli.isSet(bench) && window) {
-        const int seconds = std::max(1, cli.value(bench).toInt());
-        auto* timer = new QTimer(&app);
-        auto* elapsed = new QElapsedTimer;
-        auto* frames = new int(0);
-        // Each rendered frame triggers the next pan step, so this measures the full pipeline.
-        QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&editor, elapsed, frames, seconds] {
-            if (!elapsed->isValid())
-                elapsed->start();
-            ++*frames;
-            const double t = elapsed->elapsed() / 1000.0;
+        // Each rendered frame triggers the next pan/zoom step, so this measures the whole pipeline
+        // (snapshot, picture replay on the GPU, compositing) at the display's frame pacing.
+        struct Bench {
+            QElapsedTimer clock;
+            int frames = 0;
+            double seconds = 0;
+        };
+        auto bench_ = std::make_shared<Bench>();
+        bench_->seconds = std::max(1, cli.value(bench).toInt());
+        QObject::connect(window, &QQuickWindow::frameSwapped, &editor, [&editor, bench_] {
+            Bench& b = *bench_;
+            if (!b.clock.isValid())
+                b.clock.start();
+            ++b.frames;
+            const double t = b.clock.elapsed() / 1000.0;
             editor.panBy(QPointF(std::sin(t * 3) * 6, std::cos(t * 2) * 4));
-            if (*frames % 60 == 0)
-                editor.zoomAt(QPointF(400, 300), (*frames / 60) % 2 ? 1.25 : 0.8);
-            if (t >= seconds) {
-                std::printf("bench: %d frames in %.2fs = %.1f fps\n", *frames, t, *frames / t);
+            if (b.frames % 60 == 0)
+                editor.zoomAt(QPointF(400, 300), (b.frames / 60) % 2 ? 1.25 : 0.8);
+            if (t >= b.seconds) {
+                std::printf("bench: %d frames in %.2fs = %.1f fps\n", b.frames, t, b.frames / t);
                 std::fflush(stdout);
                 QCoreApplication::quit();
             }
-        });
-        QObject::connect(timer, &QTimer::timeout, &editor, [&editor] { editor.requestUpdate(); });
-        timer->start(1500);
+        }, Qt::QueuedConnection);
     }
     return app.exec();
 }

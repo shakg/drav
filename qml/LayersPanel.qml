@@ -48,7 +48,7 @@ ListView {
         required property bool parentSelected
         required property int component
         required property bool mask
-        required property bool autoLayout
+        required property int autoLayout
         width: ListView.view.width
         height: 32
         color: selected ? Theme.selectionRow : parentSelected ? Theme.selectionChild : (hover.hovered ? Theme.hover : "transparent")
@@ -122,7 +122,7 @@ ListView {
                 MouseArea { anchors.fill: parent; anchors.margins: -4; enabled: row.hasChildren; onClicked: editor.setNodeExpanded(row.nodeId, !row.expanded) }
             }
             Icon {
-                name: row.mask ? "mask" : row.autoLayout ? (row.type === "FRAME" ? "layoutV" : list.iconFor(row.type)) : list.iconFor(row.type)
+                name: row.mask ? "mask" : (row.autoLayout && row.type === "FRAME") ? (row.autoLayout === 1 ? "layoutH" : "layoutV") : list.iconFor(row.type)
                 size: 14
                 color: row.component ? Theme.component : Theme.textDim
             }

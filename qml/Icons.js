@@ -74,5 +74,9 @@ var paths = {
     padH: "M4 4 V20 M20 4 V20 M8 9 H16 V15 H8 Z",
     padV: "M4 4 H20 M4 20 H20 M9 8 H15 V16 H9 Z",
     spacingH: "M4 6 V18 M20 6 V18 M8 12 H16 M10 10 L8 12 L10 14 M14 10 L16 12 L14 14",
+    underline: "M7 4 V11 A5 5 0 0 0 17 11 V4 M5 20 H19",
+    strike: "M5 12 H19 M16 6.5 C15 4.5 9 4 8.5 7.5 M8 16.5 C9 19.5 15.5 20 16 16",
+    italic: "M10 4 H18 M6 20 H14 M14 4 L10 20",
+    truncate: "M4 12 H13 M16 12 H16.5 M19 12 H19.5",
     spacingV: "M6 4 H18 M6 20 H18 M12 8 V16 M10 10 L12 8 L14 10 M10 14 L12 16 L14 14"
 };

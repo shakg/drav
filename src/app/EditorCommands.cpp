@@ -243,7 +243,8 @@ void Editor::wrapSelection(NodeType type, const QString& label)
         p.name = sel.size() == 1 ? m_doc->at(sel[0]).p.name : p.name;
     NodeId wrap = m_doc->create(p, parent, index + 1);
     SkMatrix pw = m_doc->worldTransform(parent), inv;
-    pw.invert(&inv);
+    if (!pw.invert(&inv))
+        inv.reset();
     SkPoint o = inv.mapXY(b.left(), b.top());
     m_doc->setPosition(wrap, o.x(), o.y());
     m_doc->resize(wrap, std::max(1.f, b.width()), std::max(1.f, b.height()));

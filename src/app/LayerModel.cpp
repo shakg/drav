@@ -76,7 +76,7 @@ void LayerModel::build(std::vector<Row>& out) const
         else if (n.type() == NodeType::Instance || inInstance)
             comp = 2;
         out.push_back({id, n.p.name, n.type(), depth, !n.children.empty(), expanded, n.p.visible, n.p.locked, isSel,
-            parentSel, comp, n.p.isMask, n.p.layout.mode != LayoutMode::None});
+            parentSel, comp, n.p.isMask, int(n.p.layout.mode)});
         if (expanded)
             for (auto it = n.children.rbegin(); it != n.children.rend(); ++it)
                 rec(*it, depth + 1, parentSel || isSel, inInstance || n.type() == NodeType::Instance);

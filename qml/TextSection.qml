@@ -74,10 +74,10 @@ Section {
             Layout.fillWidth: true
             icon: "autoHeight"
             value: root.p.lineHeight === 0 ? undefined : root.p.lineHeight
+            emptyText: qsTr("Auto")
             suffix: root.p.lineHeightPercent ? "%" : ""
             minimum: 0
             onCommitted: v => editor.setProp("lineHeight", v)
-            Text { anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; text: root.p.lineHeight === 0 ? qsTr("Auto") : ""; color: Theme.textDim; font.pixelSize: Theme.fontSize }
         }
         NumberField { Layout.fillWidth: true; icon: "autoWidth"; key: "letterSpacing"; value: root.p.letterSpacing; suffix: "%"; step: 0.5 }
         NumberField { Layout.fillWidth: true; label: "¶"; key: "paragraphSpacing"; value: root.p.paragraphSpacing; minimum: 0 }
@@ -105,10 +105,10 @@ Section {
         IconButton { iconName: "autoWidth"; tip: qsTr("Auto width"); checked: root.p.autoResize === "WIDTH_AND_HEIGHT"; onClicked: editor.setProp("autoResize", "WIDTH_AND_HEIGHT") }
         IconButton { iconName: "autoHeight"; tip: qsTr("Auto height"); checked: root.p.autoResize === "HEIGHT"; onClicked: editor.setProp("autoResize", "HEIGHT") }
         IconButton { iconName: "fixedSize"; tip: qsTr("Fixed size"); checked: root.p.autoResize === "NONE"; onClicked: editor.setProp("autoResize", "NONE") }
-        IconButton { iconName: "minus"; tip: qsTr("Truncate"); checked: root.p.autoResize === "TRUNCATE"; onClicked: editor.setProp("autoResize", "TRUNCATE") }
+        IconButton { iconName: "truncate"; tip: qsTr("Truncate"); checked: root.p.autoResize === "TRUNCATE"; onClicked: editor.setProp("autoResize", "TRUNCATE") }
         Item { width: 8 }
-        IconButton { iconName: "text"; tip: qsTr("Underline"); checked: root.p.decoration === "UNDERLINE"; onClicked: editor.setProp("decoration", root.p.decoration === "UNDERLINE" ? "NONE" : "UNDERLINE") }
-        IconButton { iconName: "minus"; tip: qsTr("Strikethrough"); checked: root.p.decoration === "STRIKETHROUGH"; onClicked: editor.setProp("decoration", root.p.decoration === "STRIKETHROUGH" ? "NONE" : "STRIKETHROUGH") }
-        IconButton { iconName: "pencil"; tip: qsTr("Italic"); checked: root.p.italic === true; onClicked: editor.setProp("italic", !root.p.italic) }
+        IconButton { iconName: "underline"; tip: qsTr("Underline"); checked: root.p.decoration === "UNDERLINE"; onClicked: editor.setProp("decoration", root.p.decoration === "UNDERLINE" ? "NONE" : "UNDERLINE") }
+        IconButton { iconName: "strike"; tip: qsTr("Strikethrough"); checked: root.p.decoration === "STRIKETHROUGH"; onClicked: editor.setProp("decoration", root.p.decoration === "STRIKETHROUGH" ? "NONE" : "STRIKETHROUGH") }
+        IconButton { iconName: "italic"; tip: qsTr("Italic"); checked: root.p.italic === true; onClicked: editor.setProp("italic", !root.p.italic) }
     }
 }

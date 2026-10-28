@@ -110,7 +110,7 @@ ScrollView {
         // ---------------- Position & size
         Section {
             visible: root.has
-            title: root.frameLike ? qsTr("Frame") : root.type === "BOOLEAN_OPERATION" ? qsTr("Boolean") : qsTr("Layer")
+            title: root.frameLike ? qsTr("Frame") : root.type === "BOOLEAN_OPERATION" ? qsTr("Boolean") : qsTr("Position")
             actions: [
                 IconButton { iconName: "union"; visible: root.type === "BOOLEAN_OPERATION"; checked: root.p.boolOp === "UNION"; onClicked: editor.setProp("boolOp", "UNION"); tip: qsTr("Union") },
                 IconButton { iconName: "subtract"; visible: root.type === "BOOLEAN_OPERATION"; checked: root.p.boolOp === "SUBTRACT"; onClicked: editor.setProp("boolOp", "SUBTRACT"); tip: qsTr("Subtract") },

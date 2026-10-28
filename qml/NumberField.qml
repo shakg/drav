@@ -15,6 +15,7 @@ Rectangle {
     property real minimum: -1e9
     property real maximum: 1e9
     property real displayScale: 1 // e.g. 100 for opacity shown in percent
+    property string emptyText: "Mixed" // shown when value is undefined
     readonly property bool mixed: value === undefined || value === null
     signal committed(real value)
     signal live(real value)
@@ -28,7 +29,7 @@ Rectangle {
     border.width: 1
 
     function fmt(v) {
-        if (root.mixed) return "Mixed"
+        if (root.mixed) return root.emptyText
         const s = v * root.displayScale
         const r = Math.round(s * Math.pow(10, decimals)) / Math.pow(10, decimals)
         return String(r) + root.suffix
