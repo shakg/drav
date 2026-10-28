@@ -1,6 +1,7 @@
 #include "Document.h"
 
 #include "Layout.h"
+#include "Variables.h"
 
 #include <QCryptographicHash>
 
@@ -689,6 +690,21 @@ void Document::fitGroup(NodeId id)
     p.height = std::max(u.height(), 0.01f);
 }
 
+const Library& Document::library() const
+{
+    static const Library empty;
+    const Node* r = find(m_root);
+    return r && r->p.library ? *r->p.library : empty;
+}
+
+Library& Document::editLibrary()
+{
+    Props& rp = edit(m_root);
+    auto lib = std::make_shared<Library>(rp.library ? *rp.library : Library());
+    rp.library = lib;
+    return *lib;
+}
+
 QString Document::addImage(const QByteArray& encoded)
 {
     QString hash = QString::fromLatin1(QCryptographicHash::hash(encoded, QCryptographicHash::Sha1).toHex());
@@ -708,7 +724,11 @@ void Document::updateDerived()
     assert(m_depth > 0);
     m_deriving = true;
     markOverrides();
+    // Resolve before syncing (main components pick up new values) and after (instance nodes
+    // resolve in their own context, e.g. a different variable mode).
+    resolveBindings();
     syncInstances();
+    resolveBindings();
     runLayout();
     m_dirty.clear();
     m_userEdited.clear();
@@ -729,7 +749,9 @@ void Document::markOverrides()
         // A new instance hasn't been synced from its main yet; differences aren't user overrides.
         if (n->type() == NodeType::Instance && !n->p.sourceId && m_txn && m_txn->created.count(id))
             continue;
-        std::uint32_t mask = diffOverrideMask(at(main).p, n->p);
+        Props cur = n->p;
+        vars::alignDriven(cur, at(main).p);
+        std::uint32_t mask = diffOverrideMask(at(main).p, cur);
         if (n->type() == NodeType::Instance && at(at(main).parent).type() == NodeType::ComponentSet
             && n->p.name == at(at(main).parent).p.name)
             mask &= ~OvName;
@@ -740,6 +762,49 @@ void Document::markOverrides()
             Props& p = edit(id);
             p.overrides |= mask;
         }
+    }
+}
+
+void Document::resolveBindings()
+{
+    const Library& lib = library();
+    if (lib.styles.empty() && lib.variables.empty())
+        return;
+    // Resolve whole subtrees of dirty nodes: a mode change or a move into another frame changes
+    // the context of every descendant. A library change re-resolves everything.
+    std::vector<NodeId> roots;
+    if (m_dirty.count(m_root)) {
+        roots.push_back(m_root);
+    } else {
+        for (NodeId id : m_dirty) {
+            const Node* n = find(id);
+            if (!n || !n->attached)
+                continue;
+            bool covered = false;
+            for (const Node* a = n->parent ? find(n->parent) : nullptr; a && !covered;
+                 a = a->parent ? find(a->parent) : nullptr)
+                covered = m_dirty.count(a->id) > 0;
+            if (!covered)
+                roots.push_back(id);
+        }
+    }
+    std::vector<NodeId> todo;
+    for (NodeId r : roots)
+        walk(r, [&](const Node& n) {
+            if (vars::hasRefs(n.p))
+                todo.push_back(n.id);
+            return true;
+        });
+    for (NodeId id : todo) {
+        Props next = at(id).p;
+        std::optional<SkSize> size;
+        vars::apply(*this, id, next, &size);
+        next.width = at(id).p.width;
+        next.height = at(id).p.height;
+        if (!(next == at(id).p))
+            edit(id) = next;
+        if (size && (size->width() != at(id).p.width || size->height() != at(id).p.height))
+            resize(id, size->width(), size->height());
     }
 }
 

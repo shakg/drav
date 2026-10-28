@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Library.h"
 #include "Node.h"
 
 #include <QByteArray>
@@ -99,6 +100,12 @@ public:
     void setWorldTransform(NodeId id, const SkMatrix& world);
     void fitGroup(NodeId id);
 
+    // ---- styles and variables ----
+    const Library& library() const;
+    std::shared_ptr<const Library> libraryPtr() const { return at(m_root).p.library; }
+    // Inside a transaction: a fresh copy of the library to modify (undo keeps the old one).
+    Library& editLibrary();
+
     // ---- images ----
     QString addImage(const QByteArray& encoded); // returns content hash
     const QHash<QString, QByteArray>& images() const { return m_images; }
@@ -155,6 +162,7 @@ private:
     void syncChildren(NodeId instNode, NodeId mainNode);
     NodeId cloneFromMain(NodeId mainNode, NodeId parent, int index);
     void markOverrides();
+    void resolveBindings();
     void runLayout();
 
     std::unordered_map<NodeId, std::unique_ptr<Node>> m_nodes;

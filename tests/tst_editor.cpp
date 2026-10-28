@@ -270,6 +270,88 @@ private slots:
         QCOMPARE(io::save(doc()).size(), before.size());
     }
 
+    void stylesFromSelectionAndDetach()
+    {
+        ed->setTool("rect");
+        drag({100, 100}, {200, 200});
+        NodeId a = only().id;
+        ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::red)}}});
+        QString sid = ed->createStyle("fills", "Brand/Red");
+        QVERIFY(!sid.isEmpty());
+        QCOMPARE(doc().at(a).p.fillStyle, sid);
+        QCOMPARE(ed->library().value("styles").toList().size(), 1);
+
+        ed->setTool("rect");
+        drag({300, 100}, {400, 200});
+        NodeId b = only().id;
+        ed->applyStyle("fills", sid);
+        QCOMPARE(doc().at(b).p.fills.at(0).color, (SkColor4f{1, 0, 0, 1}));
+
+        ed->editStyle(sid, {{"paints", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::blue)}}}}});
+        QCOMPARE(doc().at(a).p.fills.at(0).color, (SkColor4f{0, 0, 1, 1}));
+        QCOMPARE(doc().at(b).p.fills.at(0).color, (SkColor4f{0, 0, 1, 1}));
+
+        // Editing the fill directly detaches the style.
+        ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::green)}}});
+        QVERIFY(doc().at(b).p.fillStyle.isEmpty());
+        ed->editStyle(sid, {{"paints", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::black)}}}}});
+        QCOMPARE(doc().at(b).p.fills.at(0).color, (SkColor4f{0, 1, 0, 1}));
+
+        // Deleting the style keeps the values on its users.
+        ed->deleteStyle(sid);
+        QVERIFY(doc().at(a).p.fillStyle.isEmpty());
+        QCOMPARE(doc().at(a).p.fills.at(0).color, (SkColor4f{0, 0, 0, 1}));
+        ed->undo();
+        QCOMPARE(doc().at(a).p.fillStyle, sid);
+    }
+
+    void variablesBindModeAndUnbind()
+    {
+        QString coll = ed->addCollection("Theme");
+        QVariantMap lib = ed->library();
+        const QString light = lib["collections"].toList()[0].toMap()["modes"].toList()[0].toMap()["id"].toString();
+        QString dark = ed->addMode(coll, "Dark");
+        QString gap = ed->addVariable(coll, "FLOAT", "space/md");
+        ed->setVariableValue(gap, light, 8);
+        ed->setVariableValue(gap, dark, 24);
+        QString ink = ed->addVariable(coll, "COLOR", "ink");
+        ed->setVariableValue(ink, light, QColor(Qt::black));
+        ed->setVariableValue(ink, dark, QColor(Qt::white));
+
+        ed->setTool("frame");
+        drag({100, 100}, {400, 300});
+        NodeId frame = only().id;
+        ed->addAutoLayout();
+        ed->bindVariable("spacing", gap);
+        QCOMPARE(doc().at(frame).p.layout.spacing, 8.f);
+        ed->bindVariable("fills/0", ink);
+        QCOMPARE(doc().at(frame).p.fills.at(0).color, SkColors::kBlack);
+
+        ed->setVariableMode(coll, dark);
+        QCOMPARE(doc().at(frame).p.layout.spacing, 24.f);
+        QCOMPARE(doc().at(frame).p.fills.at(0).color, SkColors::kWhite);
+        QCOMPARE(ed->resolveVariable(gap).toFloat(), 24.f);
+
+        // Alias, then deleting the target leaves the alias with a literal value.
+        QString gap2 = ed->addVariable(coll, "FLOAT", "space/alias");
+        ed->setVariableAlias(gap2, dark, gap);
+        ed->setVariableAlias(gap, dark, gap2); // would loop: refused
+        QVERIFY(doc().library().variable(gap)->values.value(dark).alias.isEmpty());
+        ed->deleteVariable(gap);
+        QCOMPARE(doc().library().variable(gap2)->values.value(dark).number, 24.f);
+        QVERIFY(doc().at(frame).p.bindings.isEmpty());
+        QCOMPARE(doc().at(frame).p.layout.spacing, 24.f);
+
+        // A direct edit detaches the bound color.
+        QVariantList fills = ed->props().value("fills").toList();
+        QVariantMap f = fills[0].toMap();
+        QCOMPARE(f["colorVar"].toString(), ink);
+        f["color"] = QColor(Qt::red);
+        ed->setProp("fills", QVariantList{f});
+        QVERIFY(doc().at(frame).p.fills.at(0).colorVar.isEmpty());
+        QCOMPARE(doc().at(frame).p.fills.at(0).color, (SkColor4f{1, 0, 0, 1}));
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

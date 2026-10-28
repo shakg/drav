@@ -9,6 +9,12 @@ Section {
     readonly property bool mixed: paints === undefined || paints === null
     showAdd: true
     signal popupRequested(var item, int index)
+    readonly property string styleId: (key === "fills" ? editor.props.fillStyle : editor.props.strokeStyle) || ""
+    actions: [
+        IconButton { iconName: "style"; iconSize: 14; tip: root.key === "fills" ? qsTr("Fill styles") : qsTr("Stroke styles")
+            onClicked: { stylePicker.current = root.styleId; stylePicker.open() }
+            StylePicker { id: stylePicker; slot: root.key; x: -width - 20 } }
+    ]
 
     function copyList() {
         return (paints || []).map(p => {
@@ -28,6 +34,7 @@ Section {
         update(list, false)
     }
 
+    StyleChip { slot: root.key; styleId: root.styleId }
     Text {
         visible: root.mixed
         text: qsTr("Click + to replace mixed content")
@@ -69,9 +76,19 @@ Section {
                             }
                         }
                     }
+                    Text {
+                        readonly property var v: row.modelData.colorVar ? editor.library.variables.find(x => x.id === row.modelData.colorVar) : null
+                        Layout.fillWidth: true
+                        visible: !!row.modelData.colorVar
+                        text: v ? v.name : qsTr("Missing variable")
+                        color: v ? Theme.text : Theme.danger
+                        font.pixelSize: Theme.fontSize
+                        elide: Text.ElideRight
+                        MouseArea { anchors.fill: parent; onClicked: row.openVar() }
+                    }
                     TextBox {
                         Layout.fillWidth: true
-                        visible: row.modelData.type === "SOLID"
+                        visible: row.modelData.type === "SOLID" && !row.modelData.colorVar
                         text: popup.hex(row.modelData.color)
                         onAccepted: t => {
                             const c = Qt.color("#" + t.replace("#", ""))
@@ -102,6 +119,15 @@ Section {
                         onLiveEnd: editor.endLive()
                     }
                 }
+            }
+            function openVar() { varPicker.current = row.modelData.colorVar || ""; varPicker.open() }
+            IconButton {
+                iconName: "variable"
+                iconSize: 12
+                checked: !!row.modelData.colorVar
+                tip: qsTr("Apply color variable")
+                onClicked: row.openVar()
+                VariablePicker { id: varPicker; x: -width - 20; varType: "COLOR"; onPicked: id => editor.bindVariable(root.key + "/" + row.realIndex, id) }
             }
             IconButton {
                 iconName: row.modelData.visible ? "eye" : "eyeOff"

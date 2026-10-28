@@ -57,6 +57,60 @@ void Editor::loadDemo()
     d.begin(tr("Demo"));
     d.edit(page).name = QStringLiteral("Showcase");
 
+    // ---- Variables (Light/Dark theme) and styles ----
+    Library& lib = d.editLibrary();
+    const QString theme = Library::newId(), light = Library::newId(), dark = Library::newId();
+    lib.collections.push_back({theme, QStringLiteral("Theme"), {{light, QStringLiteral("Light")}, {dark, QStringLiteral("Dark")}}});
+    auto colorVar = [&](const QString& name, SkColor4f l, SkColor4f dk) {
+        Variable v;
+        v.id = Library::newId();
+        v.name = name;
+        v.collection = theme;
+        v.type = VarType::Color;
+        VarValue a, b;
+        a.color = l;
+        b.color = dk;
+        v.values = {{light, a}, {dark, b}};
+        lib.variables.push_back(v);
+        return v.id;
+    };
+    const QString surface = colorVar(QStringLiteral("surface"), SkColors::kWhite, hex(0x1E1E1E));
+    const QString ink = colorVar(QStringLiteral("text/primary"), hex(0x1E1E1E), hex(0xF5F5F5));
+    const QString inkDim = colorVar(QStringLiteral("text/secondary"), hex(0x5E5E5E), hex(0xA0A0A0));
+    auto bound = [](SkColor4f c, const QString& var) {
+        Paint p = Paint::solid(c);
+        p.colorVar = var;
+        return p;
+    };
+    auto addStyle = [&](StyleType t, const QString& name) -> Style& {
+        Style st;
+        st.id = Library::newId();
+        st.type = t;
+        st.name = name;
+        lib.styles.push_back(st);
+        return lib.styles.back();
+    };
+    const QString brand = addStyle(StyleType::Fill, QStringLiteral("Brand/Blue")).id;
+    lib.styles.back().paints = {Paint::solid(hex(0x0D99FF))};
+    Style& heading = addStyle(StyleType::Text, QStringLiteral("Heading"));
+    heading.text.size = 22;
+    heading.text.weight = 700;
+    const QString headingId = heading.id;
+    Style& bodyStyle = addStyle(StyleType::Text, QStringLiteral("Body"));
+    bodyStyle.text.size = 14;
+    bodyStyle.text.lineHeight = 150;
+    bodyStyle.text.lineHeightPercent = true;
+    const QString bodyId = bodyStyle.id;
+    Style& elevation = addStyle(StyleType::Effect, QStringLiteral("Elevation/Card"));
+    {
+        Effect e;
+        e.color = hex(0x000000, 0.12f);
+        e.offset = {0, 8};
+        e.radius = 24;
+        elevation.effects = {e};
+    }
+    const QString elevationId = elevation.id;
+
     // ---- Button component set with two variants ----
     auto makeButton = [&](const QString& name, SkColor4f bg, SkColor4f fg) {
         Props b = frame(name, 10, 10, bg);
@@ -69,6 +123,7 @@ void Editor::loadDemo()
         return id;
     };
     NodeId primary = makeButton(QStringLiteral("Variant=Primary"), hex(0x0D99FF), SkColors::kWhite);
+    d.edit(primary).fillStyle = brand;
     NodeId secondary = makeButton(QStringLiteral("Variant=Secondary"), hex(0xEDEDED), hex(0x1E1E1E));
     d.edit(primary).variantProps = {{QStringLiteral("Variant"), QStringLiteral("Primary")}};
     d.edit(secondary).variantProps = {{QStringLiteral("Variant"), QStringLiteral("Secondary")}};
@@ -95,6 +150,8 @@ void Editor::loadDemo()
     shadow.offset = {0, 8};
     shadow.radius = 24;
     card.effects = {shadow};
+    card.effectStyle = elevationId;
+    card.fills = {bound(SkColors::kWhite, surface)};
     NodeId cardId = d.create(card, page);
 
     Props hero;
@@ -111,7 +168,10 @@ void Editor::loadDemo()
     hero.fills = {grad};
     d.create(hero, cardId);
 
-    d.create(text(QStringLiteral("Offline vector design"), 22, 700, hex(0x1E1E1E)), cardId);
+    Props title = text(QStringLiteral("Offline vector design"), 22, 700, hex(0x1E1E1E));
+    title.textStyleId = headingId;
+    title.fills = {bound(hex(0x1E1E1E), ink)};
+    d.create(title, cardId);
     Props body = text(QStringLiteral("Auto layout, components, variants, boolean operations, "
                                      "effects and a pen tool. Everything stays on your machine."),
         14, 400, hex(0x5E5E5E));
@@ -119,6 +179,8 @@ void Editor::loadDemo()
     body.textStyle.lineHeight = 150;
     body.textStyle.lineHeightPercent = true;
     body.layoutChild.sizingH = LayoutSizing::Fill;
+    body.textStyleId = bodyId;
+    body.fills = {bound(hex(0x5E5E5E), inkDim)};
     d.create(body, cardId);
 
     Props row = frame(QStringLiteral("Actions"), 10, 10, SkColors::kWhite);
@@ -136,6 +198,12 @@ void Editor::loadDemo()
     // Instance override: different label.
     d.edit(d.at(second).children.front()).text = QStringLiteral("Learn more");
     d.setPosition(cardId, 0, 0);
+
+    // The same card in the dark mode of the theme.
+    NodeId darkCard = d.duplicate(cardId, page);
+    d.edit(darkCard).name = QStringLiteral("Card (dark)");
+    d.edit(darkCard).variableModes.insert(theme, dark);
+    d.setPosition(darkCard, 0, 420);
 
     // ---- Shapes ----
     Props star;

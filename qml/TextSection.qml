@@ -7,6 +7,22 @@ Section {
     id: root
     title: qsTr("Text")
     readonly property var p: editor.props
+    actions: [
+        IconButton {
+            iconName: "variable"; iconSize: 13
+            checked: !!root.p.bindings && !!root.p.bindings.characters
+            tip: qsTr("Bind text content to a string variable")
+            onClicked: { textVar.current = root.p.bindings ? (root.p.bindings.characters || "") : ""; textVar.open() }
+            VariablePicker { id: textVar; x: -width - 20; varType: "STRING"; onPicked: id => editor.bindVariable("characters", id) }
+        },
+        IconButton {
+            iconName: "style"; iconSize: 14
+            tip: qsTr("Text styles")
+            onClicked: { textStyles.current = root.p.textStyleId || ""; textStyles.open() }
+            StylePicker { id: textStyles; slot: "text"; x: -width - 20 }
+        }
+    ]
+    StyleChip { slot: "text"; styleId: root.p.textStyleId || "" }
     readonly property var weights: [
         { value: 100, text: "Thin" }, { value: 200, text: "Extra Light" }, { value: 300, text: "Light" },
         { value: 400, text: "Regular" }, { value: 500, text: "Medium" }, { value: 600, text: "Semi Bold" },
@@ -63,7 +79,7 @@ Section {
             model: root.weights
             onPicked: v => editor.setProp("fontWeight", v)
         }
-        NumberField { Layout.preferredWidth: 70; key: "fontSize"; value: root.p.fontSize; minimum: 1; decimals: 1 }
+        NumberField { Layout.preferredWidth: 70; key: "fontSize"; bindKey: "fontSize"; value: root.p.fontSize; minimum: 1; decimals: 1 }
     }
     GridLayout {
         Layout.fillWidth: true
@@ -73,14 +89,15 @@ Section {
         NumberField {
             Layout.fillWidth: true
             icon: "autoHeight"
+            bindKey: "lineHeight"
             value: root.p.lineHeight === 0 ? undefined : root.p.lineHeight
             emptyText: qsTr("Auto")
             suffix: root.p.lineHeightPercent ? "%" : ""
             minimum: 0
             onCommitted: v => editor.setProp("lineHeight", v)
         }
-        NumberField { Layout.fillWidth: true; icon: "autoWidth"; key: "letterSpacing"; value: root.p.letterSpacing; suffix: "%"; step: 0.5 }
-        NumberField { Layout.fillWidth: true; label: "¶"; key: "paragraphSpacing"; value: root.p.paragraphSpacing; minimum: 0 }
+        NumberField { Layout.fillWidth: true; icon: "autoWidth"; key: "letterSpacing"; bindKey: "letterSpacing"; value: root.p.letterSpacing; suffix: "%"; step: 0.5 }
+        NumberField { Layout.fillWidth: true; label: "¶"; key: "paragraphSpacing"; bindKey: "paragraphSpacing"; value: root.p.paragraphSpacing; minimum: 0 }
         Dropdown {
             Layout.fillWidth: true
             current: root.p.textCase

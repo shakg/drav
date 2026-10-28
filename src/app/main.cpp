@@ -57,7 +57,8 @@ int main(int argc, char* argv[])
     QCommandLineOption shot(QStringLiteral("screenshot"), QStringLiteral("Save a window screenshot and quit."), QStringLiteral("png"));
     QCommandLineOption bench(QStringLiteral("bench"), QStringLiteral("Pan/zoom benchmark for N seconds, print FPS, quit."), QStringLiteral("seconds"));
     QCommandLineOption select(QStringLiteral("select"), QStringLiteral("Select a layer by name (\"Name#2\" picks the second match)."), QStringLiteral("name"));
-    cli.addOptions({demo, shot, bench, select});
+    QCommandLineOption show(QStringLiteral("show"), QStringLiteral("Open a named window or popup (for screenshots)."), QStringLiteral("objectName"));
+    cli.addOptions({demo, shot, bench, select, show});
     cli.process(app);
 
     drav::Editor editor;
@@ -97,10 +98,20 @@ int main(int argc, char* argv[])
     });
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-    if (cli.isSet(shot) && window) {
+    QQuickWindow* shotWindow = window;
+    if (cli.isSet(show) && window) {
+        QObject* target = window->findChild<QObject*>(cli.value(show));
+        if (auto* w = qobject_cast<QQuickWindow*>(target)) {
+            QTimer::singleShot(500, w, [w] { w->show(); });
+            shotWindow = w;
+        } else if (target) {
+            QTimer::singleShot(500, target, [target] { QMetaObject::invokeMethod(target, "open"); });
+        }
+    }
+    if (cli.isSet(shot) && shotWindow) {
         const QString path = cli.value(shot);
-        QTimer::singleShot(2000, &app, [window, path] {
-            window->grabWindow().save(path);
+        QTimer::singleShot(2000, &app, [shotWindow, path] {
+            shotWindow->grabWindow().save(path);
             QCoreApplication::quit();
         });
     }

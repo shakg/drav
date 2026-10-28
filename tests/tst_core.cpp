@@ -2,6 +2,7 @@
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
+#include "core/Variables.h"
 
 #include <QtTest>
 
@@ -18,6 +19,50 @@ class TestCore : public QObject {
         d.setPosition(id, x, y);
         d.resize(id, w, h);
         return id;
+    }
+
+    // Library with one color collection (Light/Dark) and a few variables.
+    struct Vars {
+        QString coll, light, dark, bg, brand, gap, title, shown;
+    };
+    Vars makeVars(Document& d)
+    {
+        Vars v;
+        Library& lib = d.editLibrary();
+        v.coll = Library::newId();
+        v.light = Library::newId();
+        v.dark = Library::newId();
+        lib.collections.push_back({v.coll, QStringLiteral("Theme"), {{v.light, QStringLiteral("Light")}, {v.dark, QStringLiteral("Dark")}}});
+        auto add = [&](VarType t, const QString& name, VarValue a, VarValue b) {
+            Variable x;
+            x.id = Library::newId();
+            x.name = name;
+            x.collection = v.coll;
+            x.type = t;
+            x.values = {{v.light, a}, {v.dark, b}};
+            lib.variables.push_back(x);
+            return x.id;
+        };
+        VarValue white, black;
+        white.color = SkColors::kWhite;
+        black.color = SkColors::kBlack;
+        v.bg = add(VarType::Color, QStringLiteral("bg"), white, black);
+        VarValue alias;
+        alias.alias = v.bg;
+        v.brand = add(VarType::Color, QStringLiteral("brand"), alias, alias);
+        VarValue n8, n16;
+        n8.number = 8;
+        n16.number = 16;
+        v.gap = add(VarType::Number, QStringLiteral("gap"), n8, n16);
+        VarValue s1, s2;
+        s1.string = QStringLiteral("Hello");
+        s2.string = QStringLiteral("Hola");
+        v.title = add(VarType::String, QStringLiteral("title"), s1, s2);
+        VarValue t, f;
+        t.boolean = true;
+        f.boolean = false;
+        v.shown = add(VarType::Boolean, QStringLiteral("shown"), t, f);
+        return v;
     }
 
 private slots:
@@ -384,6 +429,181 @@ private slots:
         QCOMPARE(ids.size(), size_t(1));
         QVERIFY(ids[0] != g);
         QCOMPARE(d.at(ids[0]).children.size(), size_t(2));
+    }
+
+    void fillStyleAppliesAndPropagates()
+    {
+        Document d;
+        d.begin("style");
+        Style st;
+        st.id = Library::newId();
+        st.name = QStringLiteral("Brand/Primary");
+        st.paints = {Paint::solid(SkColors::kRed)};
+        d.editLibrary().styles.push_back(st);
+        NodeId a = rect(d, page(d), 0, 0, 10, 10);
+        NodeId b = rect(d, page(d), 20, 0, 10, 10);
+        d.edit(a).fillStyle = st.id;
+        d.edit(b).strokeStyle = st.id;
+        d.commit();
+        QCOMPARE(d.at(a).p.fills.size(), size_t(1));
+        QCOMPARE(d.at(a).p.fills[0].color, SkColors::kRed);
+        QCOMPARE(d.at(b).p.strokes[0].color, SkColors::kRed);
+
+        d.begin("edit style");
+        d.editLibrary().style(st.id)->paints = {Paint::solid(SkColors::kGreen)};
+        d.commit();
+        QCOMPARE(d.at(a).p.fills[0].color, SkColors::kGreen);
+        QCOMPARE(d.at(b).p.strokes[0].color, SkColors::kGreen);
+        d.undo();
+        QCOMPARE(d.at(a).p.fills[0].color, SkColors::kRed);
+        QCOMPARE(d.library().style(st.id)->paints[0].color, SkColors::kRed);
+    }
+
+    void variablesResolveByMode()
+    {
+        Document d;
+        d.begin("setup");
+        Vars v = makeVars(d);
+        NodeId frame = d.create(NodeType::Frame, page(d));
+        d.resize(frame, 200, 200);
+        NodeId r = rect(d, frame, 0, 0, 10, 10);
+        Paint fill = Paint::solid(SkColors::kRed);
+        fill.colorVar = v.brand; // alias of bg
+        d.edit(r).fills = {fill};
+        d.edit(r).bindings.insert(QStringLiteral("visible"), v.shown);
+        NodeId t = d.create(NodeType::Text, frame);
+        d.edit(t).bindings.insert(QStringLiteral("characters"), v.title);
+        d.commit();
+        QCOMPARE(d.at(r).p.fills[0].color, SkColors::kWhite);
+        QCOMPARE(d.at(t).p.text, QStringLiteral("Hello"));
+        QVERIFY(d.at(r).p.visible);
+
+        d.begin("dark");
+        d.edit(frame).variableModes.insert(v.coll, v.dark);
+        d.commit();
+        QCOMPARE(d.at(r).p.fills[0].color, SkColors::kBlack);
+        QCOMPARE(d.at(t).p.text, QStringLiteral("Hola"));
+        QVERIFY(!d.at(r).p.visible);
+
+        // Moving out of the dark frame resolves in the page's (default) mode.
+        d.begin("move out");
+        d.move(r, page(d));
+        d.commit();
+        QCOMPARE(d.at(r).p.fills[0].color, SkColors::kWhite);
+        d.undo();
+        d.undo();
+        QCOMPARE(d.at(r).p.fills[0].color, SkColors::kWhite);
+        QCOMPARE(d.at(t).p.text, QStringLiteral("Hello"));
+    }
+
+    void numberBindingsDriveLayout()
+    {
+        Document d;
+        d.begin("setup");
+        Vars v = makeVars(d);
+        NodeId row = d.create(NodeType::Frame, page(d));
+        d.edit(row).layout.mode = LayoutMode::Horizontal;
+        d.edit(row).layoutChild.sizingH = LayoutSizing::Hug;
+        d.edit(row).bindings.insert(QStringLiteral("spacing"), v.gap);
+        d.edit(row).bindings.insert(QStringLiteral("w"), v.gap); // ignored: hug wins after layout
+        NodeId a = rect(d, row, 0, 0, 10, 10);
+        NodeId b = rect(d, row, 0, 0, 10, 10);
+        d.edit(a).bindings.insert(QStringLiteral("w"), v.gap);
+        d.commit();
+        QCOMPARE(d.at(row).p.layout.spacing, 8.f);
+        QCOMPARE(d.at(a).p.width, 8.f);
+        QCOMPARE(d.at(b).p.transform.getTranslateX(), 16.f);
+
+        d.begin("mode");
+        d.edit(row).variableModes.insert(v.coll, v.dark);
+        d.commit();
+        QCOMPARE(d.at(row).p.layout.spacing, 16.f);
+        QCOMPARE(d.at(a).p.width, 16.f);
+        QCOMPARE(d.at(b).p.transform.getTranslateX(), 32.f);
+    }
+
+    void instancesResolveInContextWithoutOverrides()
+    {
+        Document d;
+        d.begin("setup");
+        Vars v = makeVars(d);
+        NodeId comp = d.create(NodeType::Component, page(d));
+        NodeId bg = rect(d, comp, 0, 0, 100, 40);
+        Paint fill = Paint::solid(SkColors::kRed);
+        fill.colorVar = v.bg;
+        d.edit(bg).fills = {fill};
+        NodeId dark = d.create(NodeType::Frame, page(d));
+        d.edit(dark).variableModes.insert(v.coll, v.dark);
+        Props ip;
+        ip.type = NodeType::Instance;
+        ip.componentId = comp;
+        NodeId inst = d.create(ip, dark);
+        d.commit();
+        NodeId iBg = d.at(inst).children.at(0);
+        QCOMPARE(d.at(bg).p.fills[0].color, SkColors::kWhite);
+        QCOMPARE(d.at(iBg).p.fills[0].color, SkColors::kBlack);
+        QCOMPARE(d.at(iBg).p.overrides & OvFills, 0u);
+
+        // An unrelated edit must not turn the context-resolved fill into an override.
+        d.begin("rename");
+        d.edit(iBg).name = QStringLiteral("Renamed");
+        d.commit();
+        QCOMPARE(d.at(iBg).p.overrides & OvFills, 0u);
+
+        // Main switches variable: instance follows.
+        d.begin("rebind");
+        Paint f2 = d.at(bg).p.fills[0];
+        f2.colorVar = v.brand;
+        d.edit(bg).fills = {f2};
+        d.commit();
+        QCOMPARE(d.at(iBg).p.fills[0].colorVar, v.brand);
+        QCOMPARE(d.at(iBg).p.fills[0].color, SkColors::kBlack);
+    }
+
+    void libraryRoundTrip()
+    {
+        Document d;
+        d.begin("setup");
+        Vars v = makeVars(d);
+        Style ts;
+        ts.id = Library::newId();
+        ts.name = QStringLiteral("Heading");
+        ts.type = StyleType::Text;
+        ts.text.size = 32;
+        ts.text.weight = 700;
+        d.editLibrary().styles.push_back(ts);
+        NodeId frame = d.create(NodeType::Frame, page(d));
+        d.edit(frame).variableModes.insert(v.coll, v.dark);
+        NodeId t = d.create(NodeType::Text, frame);
+        d.edit(t).textStyleId = ts.id;
+        d.edit(t).bindings.insert(QStringLiteral("characters"), v.title);
+        d.commit();
+        QCOMPARE(d.at(t).p.textStyle.size, 32.f);
+
+        Document d2;
+        QVERIFY(io::load(d2, io::save(d)));
+        QCOMPARE(d2.library(), d.library());
+        QCOMPARE(d2.at(t).p.textStyleId, ts.id);
+        QCOMPARE(d2.at(t).p.bindings, d.at(t).p.bindings);
+        QCOMPARE(d2.at(frame).p.variableModes, d.at(frame).p.variableModes);
+        QCOMPARE(d2.at(t).p.text, QStringLiteral("Hola"));
+    }
+
+    void aliasCycleDoesNotHang()
+    {
+        Library lib;
+        lib.collections.push_back({QStringLiteral("c"), QStringLiteral("C"), {{QStringLiteral("m"), QStringLiteral("M")}}});
+        Variable a, b;
+        a.id = QStringLiteral("a");
+        b.id = QStringLiteral("b");
+        a.collection = b.collection = QStringLiteral("c");
+        VarValue va, vb;
+        va.alias = QStringLiteral("b");
+        vb.alias = QStringLiteral("a");
+        a.values.insert(QStringLiteral("m"), va);
+        b.values.insert(QStringLiteral("m"), vb);
+        lib.variables = {a, b};
+        QVERIFY(!vars::resolve(lib, QStringLiteral("a"), {}).has_value());
     }
 
     void smoothRectGeometry()

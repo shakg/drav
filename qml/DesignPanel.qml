@@ -37,6 +37,8 @@ ScrollView {
             }
         }
 
+        LocalAssets { visible: !root.has }
+
         // ---------------- Instance / component header
         Section {
             visible: root.has && (root.p.isInstance === true || root.p.isComponent === true || root.p.isComponentSet === true)
@@ -125,8 +127,8 @@ ScrollView {
                 NumberField { Layout.fillWidth: true; label: "X"; key: root.p.count > 1 ? "selX" : "x"; value: root.p.count > 1 ? root.p.selX : root.p.x }
                 NumberField { Layout.fillWidth: true; label: "Y"; key: root.p.count > 1 ? "selY" : "y"; value: root.p.count > 1 ? root.p.selY : root.p.y }
                 Item { implicitWidth: 28 }
-                NumberField { Layout.fillWidth: true; label: "W"; key: "w"; value: root.p.w; minimum: 0.01 }
-                NumberField { Layout.fillWidth: true; label: "H"; key: "h"; value: root.p.h; minimum: 0.01; enabled: root.type !== "LINE" }
+                NumberField { Layout.fillWidth: true; label: "W"; key: "w"; bindKey: "w"; value: root.p.w; minimum: 0.01 }
+                NumberField { Layout.fillWidth: true; label: "H"; key: "h"; bindKey: "h"; value: root.p.h; minimum: 0.01; enabled: root.type !== "LINE" }
                 IconButton { iconName: "link"; checked: root.p.lockRatio === true; tip: qsTr("Constrain proportions"); onClicked: editor.setProp("lockRatio", !root.p.lockRatio) }
                 NumberField { Layout.fillWidth: true; icon: "rotate"; key: "rotation"; value: root.p.rotation; suffix: "°"; decimals: 1 }
                 NumberField {
@@ -134,6 +136,7 @@ ScrollView {
                     Layout.fillWidth: true
                     icon: "corner"
                     key: "cornerRadius"
+                    bindKey: "cornerRadius"
                     minimum: 0
                     value: root.p.cornerRadius
                     visible: ["RECTANGLE", "FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "POLYGON", "STAR", "VECTOR"].indexOf(root.type) >= 0
@@ -267,12 +270,13 @@ ScrollView {
                         Layout.fillWidth: true
                         icon: root.p.layoutMode === "HORIZONTAL" ? "spacingH" : "spacingV"
                         key: "spacing"
+                        bindKey: "spacing"
                         value: root.p.primaryAlign === "SPACE_BETWEEN" ? undefined : root.p.spacing
                     }
                     RowLayout {
                         IconButton { iconName: "distH"; checked: root.p.primaryAlign === "SPACE_BETWEEN"; tip: qsTr("Space between")
                             onClicked: editor.setProp("primaryAlign", root.p.primaryAlign === "SPACE_BETWEEN" ? "MIN" : "SPACE_BETWEEN") }
-                        NumberField { Layout.fillWidth: true; visible: root.p.layoutWrap === true; icon: "spacingV"; key: "counterSpacing"; value: root.p.counterSpacing }
+                        NumberField { Layout.fillWidth: true; visible: root.p.layoutWrap === true; icon: "spacingV"; key: "counterSpacing"; bindKey: "counterSpacing"; value: root.p.counterSpacing }
                     }
                 }
             }
@@ -284,10 +288,10 @@ ScrollView {
                 rowSpacing: 4
                 NumberField { Layout.fillWidth: true; icon: "padH"; key: "padH"; minimum: 0; value: root.p.padL === root.p.padR ? root.p.padL : undefined }
                 NumberField { Layout.fillWidth: true; icon: "padV"; key: "padV"; minimum: 0; value: root.p.padT === root.p.padB ? root.p.padT : undefined }
-                NumberField { Layout.fillWidth: true; label: "L"; key: "padL"; minimum: 0; value: root.p.padL; visible: padToggle.checked }
-                NumberField { Layout.fillWidth: true; label: "T"; key: "padT"; minimum: 0; value: root.p.padT; visible: padToggle.checked }
-                NumberField { Layout.fillWidth: true; label: "R"; key: "padR"; minimum: 0; value: root.p.padR; visible: padToggle.checked }
-                NumberField { Layout.fillWidth: true; label: "B"; key: "padB"; minimum: 0; value: root.p.padB; visible: padToggle.checked }
+                NumberField { Layout.fillWidth: true; label: "L"; key: "padL"; bindKey: "padL"; minimum: 0; value: root.p.padL; visible: padToggle.checked }
+                NumberField { Layout.fillWidth: true; label: "T"; key: "padT"; bindKey: "padT"; minimum: 0; value: root.p.padT; visible: padToggle.checked }
+                NumberField { Layout.fillWidth: true; label: "R"; key: "padR"; bindKey: "padR"; minimum: 0; value: root.p.padR; visible: padToggle.checked }
+                NumberField { Layout.fillWidth: true; label: "B"; key: "padB"; bindKey: "padB"; minimum: 0; value: root.p.padB; visible: padToggle.checked }
             }
             RowLayout {
                 visible: root.al
@@ -334,8 +338,38 @@ ScrollView {
                         .map(v => ({ value: v, text: v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ") }))
                     onPicked: v => editor.setProp("blend", v)
                 }
-                NumberField { Layout.preferredWidth: 70; icon: "effects"; key: "opacity"; value: root.p.opacity; displayScale: 100; suffix: "%"; decimals: 0; minimum: 0; maximum: 1 }
+                NumberField { Layout.preferredWidth: 70; icon: "effects"; key: "opacity"; bindKey: "opacity"; value: root.p.opacity; displayScale: 100; suffix: "%"; decimals: 0; minimum: 0; maximum: 1 }
                 IconButton { iconName: root.p.visible === false ? "eyeOff" : "eye"; onClicked: editor.toggleVisible() }
+                IconButton {
+                    iconName: "variable"
+                    iconSize: 13
+                    checked: !!root.p.bindings && !!root.p.bindings.visible
+                    tip: qsTr("Bind visibility to a boolean variable")
+                    onClicked: { visPicker.current = root.p.bindings ? (root.p.bindings.visible || "") : ""; visPicker.open() }
+                    VariablePicker { id: visPicker; y: parent.height + 2; x: -width + parent.width; varType: "BOOLEAN"; onPicked: id => editor.bindVariable("visible", id) }
+                }
+            }
+        }
+
+        // ---------------- Variable modes
+        Section {
+            id: modesSection
+            readonly property var multi: editor.library.collections.filter(c => c.modes.length > 1)
+            visible: root.has && multi.length > 0 && (root.frameLike || root.type === "GROUP" || root.type === "SECTION")
+            title: qsTr("Variable modes")
+            Repeater {
+                model: modesSection.multi
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Text { text: modelData.name; color: Theme.textDim; font.pixelSize: Theme.fontSize; Layout.preferredWidth: 90; elide: Text.ElideRight }
+                    Dropdown {
+                        Layout.fillWidth: true
+                        current: root.p.variableModes ? (root.p.variableModes[modelData.id] || "") : null
+                        model: [{ value: "", text: qsTr("Auto (inherit)") }].concat(modelData.modes.map(m => ({ value: m.id, text: m.name })))
+                        onPicked: v => editor.setVariableMode(modelData.id, v)
+                    }
+                }
             }
         }
 
@@ -361,7 +395,7 @@ ScrollView {
                     model: [{ value: "INSIDE", text: qsTr("Inside") }, { value: "CENTER", text: qsTr("Center") }, { value: "OUTSIDE", text: qsTr("Outside") }]
                     onPicked: v => editor.setProp("strokeAlign", v)
                 }
-                NumberField { Layout.fillWidth: true; icon: "minus"; key: "strokeWeight"; value: root.p.strokeWeight; minimum: 0 }
+                NumberField { Layout.fillWidth: true; icon: "minus"; key: "strokeWeight"; bindKey: "strokeWeight"; value: root.p.strokeWeight; minimum: 0 }
                 Dropdown {
                     Layout.fillWidth: true
                     current: root.p.strokeJoin
@@ -398,6 +432,11 @@ ScrollView {
             visible: root.has && root.frameLike
             title: qsTr("Layout grid")
             showAdd: true
+            actions: [
+                IconButton { iconName: "style"; iconSize: 14; tip: qsTr("Grid styles"); onClicked: { gridStyles.current = root.p.gridStyle || ""; gridStyles.open() }
+                    StylePicker { id: gridStyles; slot: "grids"; x: -width - 20 } }
+            ]
+            StyleChip { slot: "grids"; styleId: root.p.gridStyle || "" }
             onAdd: {
                 const g = (root.p.grids || []).slice()
                 g.push({ kind: "COLUMNS", count: 12, size: 10, gutter: 20, margin: 0, color: Qt.rgba(1, 0, 0, 0.1), visible: true })

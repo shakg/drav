@@ -11,6 +11,7 @@
 #include <QUrl>
 #include <QVariant>
 
+#include <functional>
 #include <map>
 #include <memory>
 
@@ -70,6 +71,7 @@ class Editor : public QObject {
     Q_PROPERTY(int cursorShape READ cursorShape NOTIFY cursorChanged)
     Q_PROPERTY(bool textEditing READ textEditing NOTIFY toolChanged)
     Q_PROPERTY(double fps READ fps NOTIFY fpsChanged)
+    Q_PROPERTY(QVariantMap library READ library NOTIFY libraryChanged)
 
 public:
     explicit Editor(QObject* parent = nullptr);
@@ -216,6 +218,36 @@ public:
     QVariantList components() const;
     QStringList fontFamilies() const;
 
+    // ---- styles and variables (EditorLibrary.cpp) ----
+    // {styles: [...], collections: [...], variables: [...]} for the asset panels.
+    QVariantMap library() const;
+    // slot: "fills", "strokes", "text", "effects" or "grids". Creates a style from the first
+    // selected layer and applies it to the selection. Returns the style id.
+    Q_INVOKABLE QString createStyle(const QString& slot, const QString& name);
+    Q_INVOKABLE void applyStyle(const QString& slot, const QString& styleId); // "" detaches
+    Q_INVOKABLE void editStyle(const QString& id, const QVariantMap& changes, bool live = false);
+    Q_INVOKABLE void updateStyleFromSelection(const QString& id);
+    Q_INVOKABLE QString duplicateStyle(const QString& id);
+    Q_INVOKABLE void deleteStyle(const QString& id);
+    Q_INVOKABLE void selectStyleUsers(const QString& id);
+    Q_INVOKABLE QString addCollection(const QString& name);
+    Q_INVOKABLE void renameCollection(const QString& id, const QString& name);
+    Q_INVOKABLE void deleteCollection(const QString& id);
+    Q_INVOKABLE QString addMode(const QString& collection, const QString& name);
+    Q_INVOKABLE void renameMode(const QString& collection, const QString& mode, const QString& name);
+    Q_INVOKABLE void deleteMode(const QString& collection, const QString& mode);
+    // type: "COLOR", "FLOAT", "STRING", "BOOLEAN"
+    Q_INVOKABLE QString addVariable(const QString& collection, const QString& type, const QString& name);
+    Q_INVOKABLE void renameVariable(const QString& id, const QString& name);
+    Q_INVOKABLE void setVariableDescription(const QString& id, const QString& text);
+    Q_INVOKABLE void setVariableValue(const QString& id, const QString& mode, const QVariant& value, bool live = false);
+    Q_INVOKABLE void setVariableAlias(const QString& id, const QString& mode, const QString& target);
+    Q_INVOKABLE void deleteVariable(const QString& id);
+    // field: a bindable property key ("spacing", "w", ...) or "fills/N", "strokes/N", "effects/N".
+    Q_INVOKABLE void bindVariable(const QString& field, const QString& variableId); // "" unbinds
+    Q_INVOKABLE void setVariableMode(const QString& collection, const QString& mode); // "" = inherit
+    Q_INVOKABLE QVariant resolveVariable(const QString& id) const; // in the selection's context
+
     // ---- files ----
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool open(const QUrl& url);
@@ -257,6 +289,7 @@ signals:
     void statusChanged();
     void cursorChanged();
     void fpsChanged();
+    void libraryChanged();
     void requestRename(qint64 id);
 
 private:
@@ -271,6 +304,7 @@ private:
     void addAutoLayoutTo(NodeId frame, LayoutMode forced);
     void reorder(int delta, bool toEnd);
     void placeNodes(const std::vector<NodeId>& ids, SkPoint center);
+    void detachRefs(const std::function<bool(const QString&)>& gone);
 
     std::unique_ptr<Document> m_doc;
     std::unique_ptr<Renderer> m_renderer;
@@ -298,6 +332,7 @@ private:
     double m_frameAccum = 0;
     int m_frameCount = 0;
     QByteArray m_internalClipboard;
+    std::shared_ptr<const Library> m_lastLibrary; // held to detect library changes
 };
 
 } // namespace drav

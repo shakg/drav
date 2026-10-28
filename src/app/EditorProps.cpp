@@ -1,6 +1,9 @@
 #include "Editor.h"
 
+#include "PropMaps.h"
+
 #include "core/Text.h"
+#include "core/Variables.h"
 
 #include <QColor>
 
@@ -8,148 +11,9 @@
 
 namespace drav {
 
+using namespace maps;
+
 namespace {
-
-QColor toQColor(SkColor4f c) { return QColor::fromRgbF(c.fR, c.fG, c.fB, c.fA); }
-SkColor4f toSk(const QVariant& v)
-{
-    QColor c = v.value<QColor>();
-    if (!c.isValid())
-        c = QColor(v.toString());
-    return {float(c.redF()), float(c.greenF()), float(c.blueF()), float(c.alphaF())};
-}
-
-template <typename E, size_t N> QString enumName(E v, const char* const (&names)[N])
-{
-    size_t i = size_t(v);
-    return i < N ? QString::fromLatin1(names[i]) : QString();
-}
-template <typename E, size_t N> E enumValue(const QVariant& v, const char* const (&names)[N], E def)
-{
-    const QString s = v.toString();
-    for (size_t i = 0; i < N; ++i)
-        if (s == QLatin1String(names[i]))
-            return E(i);
-    return def;
-}
-
-const char* const kPaintTypes[] = {"SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "IMAGE"};
-const char* const kScaleModes[] = {"FILL", "FIT", "CROP", "TILE"};
-const char* const kBlends[] = {"PASS_THROUGH", "NORMAL", "DARKEN", "MULTIPLY", "COLOR_BURN", "LIGHTEN", "SCREEN",
-    "COLOR_DODGE", "OVERLAY", "SOFT_LIGHT", "HARD_LIGHT", "DIFFERENCE", "EXCLUSION", "HUE", "SATURATION", "COLOR",
-    "LUMINOSITY"};
-const char* const kAligns[] = {"INSIDE", "CENTER", "OUTSIDE"};
-const char* const kCaps[] = {"NONE", "ROUND", "SQUARE", "LINE_ARROW", "TRIANGLE_ARROW", "CIRCLE_FILLED", "DIAMOND_FILLED"};
-const char* const kJoins[] = {"MITER", "BEVEL", "ROUND"};
-const char* const kEffects[] = {"DROP_SHADOW", "INNER_SHADOW", "LAYER_BLUR", "BACKGROUND_BLUR"};
-const char* const kConsH[] = {"LEFT", "RIGHT", "LEFT_RIGHT", "CENTER", "SCALE"};
-const char* const kConsV[] = {"TOP", "BOTTOM", "TOP_BOTTOM", "CENTER", "SCALE"};
-const char* const kLayoutModes[] = {"NONE", "HORIZONTAL", "VERTICAL"};
-const char* const kLayoutAligns[] = {"MIN", "CENTER", "MAX", "SPACE_BETWEEN", "BASELINE"};
-const char* const kSizing[] = {"FIXED", "HUG", "FILL"};
-const char* const kTextH[] = {"LEFT", "CENTER", "RIGHT", "JUSTIFIED"};
-const char* const kTextV[] = {"TOP", "CENTER", "BOTTOM"};
-const char* const kAutoResize[] = {"NONE", "HEIGHT", "WIDTH_AND_HEIGHT", "TRUNCATE"};
-const char* const kCase[] = {"ORIGINAL", "UPPER", "LOWER", "TITLE"};
-const char* const kDeco[] = {"NONE", "UNDERLINE", "STRIKETHROUGH"};
-const char* const kBool[] = {"UNION", "SUBTRACT", "INTERSECT", "EXCLUDE"};
-const char* const kGridKinds[] = {"GRID", "COLUMNS", "ROWS"};
-
-QVariantMap paintToMap(const Paint& p)
-{
-    QVariantList stops;
-    for (const ColorStop& s : p.stops)
-        stops << QVariantMap{{QStringLiteral("pos"), s.pos}, {QStringLiteral("color"), toQColor(s.color)}};
-    return {
-        {QStringLiteral("type"), enumName(p.type, kPaintTypes)},
-        {QStringLiteral("color"), toQColor(p.color)},
-        {QStringLiteral("opacity"), p.opacity},
-        {QStringLiteral("visible"), p.visible},
-        {QStringLiteral("blend"), enumName(p.blend, kBlends)},
-        {QStringLiteral("stops"), stops},
-        {QStringLiteral("start"), QVariantList{p.gradStart.x(), p.gradStart.y()}},
-        {QStringLiteral("end"), QVariantList{p.gradEnd.x(), p.gradEnd.y()}},
-        {QStringLiteral("gradWidth"), p.gradWidth},
-        {QStringLiteral("image"), p.imageHash},
-        {QStringLiteral("scaleMode"), enumName(p.scaleMode, kScaleModes)},
-        {QStringLiteral("imageScale"), p.imageScale},
-    };
-}
-
-Paint paintFromMap(const QVariantMap& m)
-{
-    Paint p;
-    p.type = enumValue(m.value(QStringLiteral("type")), kPaintTypes, PaintType::Solid);
-    if (m.contains(QStringLiteral("color")))
-        p.color = toSk(m.value(QStringLiteral("color")));
-    p.opacity = m.value(QStringLiteral("opacity"), 1.0).toFloat();
-    p.visible = m.value(QStringLiteral("visible"), true).toBool();
-    p.blend = enumValue(m.value(QStringLiteral("blend")), kBlends, BlendMode::Normal);
-    const QVariantList stops = m.value(QStringLiteral("stops")).toList();
-    if (!stops.isEmpty()) {
-        p.stops.clear();
-        for (const QVariant& s : stops) {
-            QVariantMap sm = s.toMap();
-            p.stops.push_back({sm.value(QStringLiteral("pos")).toFloat(), toSk(sm.value(QStringLiteral("color")))});
-        }
-        std::sort(p.stops.begin(), p.stops.end(), [](const ColorStop& a, const ColorStop& b) { return a.pos < b.pos; });
-    }
-    auto pt = [&](const char* k, SkPoint def) {
-        QVariantList l = m.value(QLatin1String(k)).toList();
-        return l.size() == 2 ? SkPoint{l[0].toFloat(), l[1].toFloat()} : def;
-    };
-    p.gradStart = pt("start", p.gradStart);
-    p.gradEnd = pt("end", p.gradEnd);
-    p.gradWidth = m.value(QStringLiteral("gradWidth"), 1.0).toFloat();
-    p.imageHash = m.value(QStringLiteral("image")).toString();
-    p.scaleMode = enumValue(m.value(QStringLiteral("scaleMode")), kScaleModes, ImageScaleMode::Fill);
-    p.imageScale = m.value(QStringLiteral("imageScale"), 1.0).toFloat();
-    return p;
-}
-
-QVariantList paintsToList(const std::vector<Paint>& v)
-{
-    QVariantList l;
-    for (const Paint& p : v)
-        l << paintToMap(p);
-    return l;
-}
-
-std::vector<Paint> paintsFromList(const QVariant& v)
-{
-    std::vector<Paint> out;
-    for (const QVariant& p : v.toList())
-        out.push_back(paintFromMap(p.toMap()));
-    return out;
-}
-
-QVariantMap effectToMap(const Effect& e)
-{
-    return {
-        {QStringLiteral("type"), enumName(e.type, kEffects)},
-        {QStringLiteral("visible"), e.visible},
-        {QStringLiteral("color"), toQColor(e.color)},
-        {QStringLiteral("x"), e.offset.x()},
-        {QStringLiteral("y"), e.offset.y()},
-        {QStringLiteral("radius"), e.radius},
-        {QStringLiteral("spread"), e.spread},
-        {QStringLiteral("behind"), e.showBehindTransparent},
-    };
-}
-
-Effect effectFromMap(const QVariantMap& m)
-{
-    Effect e;
-    e.type = enumValue(m.value(QStringLiteral("type")), kEffects, EffectType::DropShadow);
-    e.visible = m.value(QStringLiteral("visible"), true).toBool();
-    if (m.contains(QStringLiteral("color")))
-        e.color = toSk(m.value(QStringLiteral("color")));
-    e.offset = {m.value(QStringLiteral("x"), 0).toFloat(), m.value(QStringLiteral("y"), 4).toFloat()};
-    e.radius = m.value(QStringLiteral("radius"), 4).toFloat();
-    e.spread = m.value(QStringLiteral("spread"), 0).toFloat();
-    e.showBehindTransparent = m.value(QStringLiteral("behind"), false).toBool();
-    return e;
-}
 
 float rotationOf(const SkMatrix& m)
 {
@@ -194,10 +58,7 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     for (float f : p.stroke.dashes)
         dashes << f;
     set("dashes", dashes);
-    QVariantList effects;
-    for (const Effect& e : p.effects)
-        effects << effectToMap(e);
-    set("effects", effects);
+    set("effects", effectsToList(p.effects));
     set("constraintH", enumName(p.constraintH, kConsH));
     set("constraintV", enumName(p.constraintV, kConsV));
     set("layoutMode", enumName(p.layout.mode, kLayoutModes));
@@ -251,17 +112,27 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     }
     if (p.type == NodeType::BooleanOp)
         set("boolOp", enumName(p.boolOp, kBool));
-    QVariantList grids;
-    for (const LayoutGrid& g : p.grids)
-        grids << QVariantMap{{QStringLiteral("kind"), enumName(g.kind, kGridKinds)}, {QStringLiteral("count"), g.count},
-            {QStringLiteral("size"), g.size}, {QStringLiteral("gutter"), g.gutter}, {QStringLiteral("margin"), g.margin},
-            {QStringLiteral("color"), toQColor(g.color)}, {QStringLiteral("visible"), g.visible}};
-    set("grids", grids);
+    set("grids", gridsToList(p.grids));
     QVariantList exports;
     for (const ExportSetting& e : p.exports)
         exports << QVariantMap{{QStringLiteral("format"), e.format}, {QStringLiteral("scale"), e.scale},
             {QStringLiteral("suffix"), e.suffix}};
     set("exports", exports);
+
+    // Styles and variables
+    set("fillStyle", p.fillStyle);
+    set("strokeStyle", p.strokeStyle);
+    set("textStyleId", p.textStyleId);
+    set("effectStyle", p.effectStyle);
+    set("gridStyle", p.gridStyle);
+    QVariantMap bindings;
+    for (auto it = p.bindings.begin(); it != p.bindings.end(); ++it)
+        bindings.insert(it.key(), it.value());
+    set("bindings", bindings);
+    QVariantMap modes;
+    for (auto it = p.variableModes.begin(); it != p.variableModes.end(); ++it)
+        modes.insert(it.key(), it.value());
+    set("variableModes", modes);
 
     // Components
     set("isComponent", p.type == NodeType::Component);
@@ -386,6 +257,28 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
             renameNode(qint64(id), v.toString());
         return;
     }
+    // A direct edit replaces whatever drove the field.
+    {
+        QStringList unbind;
+        if (vars::fieldType(k, nullptr))
+            unbind << k;
+        if (k == QLatin1String("cornerRadius") || k == QLatin1String("corners"))
+            unbind << QStringLiteral("cornerRadius") << QStringLiteral("tl") << QStringLiteral("tr")
+                   << QStringLiteral("br") << QStringLiteral("bl");
+        if (k == QLatin1String("padH"))
+            unbind << QStringLiteral("padL") << QStringLiteral("padR");
+        if (k == QLatin1String("padV"))
+            unbind << QStringLiteral("padT") << QStringLiteral("padB");
+        for (const QString& b : unbind)
+            if (cur.bindings.contains(b))
+                e().bindings.remove(b);
+        static const QStringList typo = {QStringLiteral("fontFamily"), QStringLiteral("fontWeight"),
+            QStringLiteral("italic"), QStringLiteral("fontSize"), QStringLiteral("lineHeight"),
+            QStringLiteral("lineHeightPercent"), QStringLiteral("letterSpacing"), QStringLiteral("paragraphSpacing"),
+            QStringLiteral("textCase"), QStringLiteral("decoration")};
+        if (!cur.textStyleId.isEmpty() && typo.contains(k))
+            e().textStyleId.clear();
+    }
     if (k == QLatin1String("x") || k == QLatin1String("y")) {
         const bool x = k == QLatin1String("x");
         m_doc->setPosition(id, x ? f : cur.transform.getTranslateX(), x ? cur.transform.getTranslateY() : f);
@@ -444,10 +337,19 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         e().cornerSmoothing = std::clamp(f, 0.f, 1.f);
     } else if (k == QLatin1String("clipsContent")) {
         e().clipsContent = v.toBool();
-    } else if (k == QLatin1String("fills")) {
-        e().fills = paintsFromList(v);
-    } else if (k == QLatin1String("strokes")) {
-        e().strokes = paintsFromList(v);
+    } else if (k == QLatin1String("fills") || k == QLatin1String("strokes")) {
+        // Editing a styled list detaches the style; changing a bound color detaches the variable.
+        const bool fills = k == QLatin1String("fills");
+        std::vector<Paint> list = paintsFromList(v);
+        const std::vector<Paint>& old = fills ? cur.fills : cur.strokes;
+        for (size_t i = 0; i < list.size() && i < old.size(); ++i)
+            if (!list[i].colorVar.isEmpty() && list[i].colorVar == old[i].colorVar
+                && (list[i].color != old[i].color || list[i].type != PaintType::Solid))
+                list[i].colorVar.clear();
+        Props& p = e();
+        if (list != old)
+            (fills ? p.fillStyle : p.strokeStyle).clear();
+        (fills ? p.fills : p.strokes) = list;
     } else if (k == QLatin1String("strokeWeight")) {
         e().stroke.weight = std::max(0.f, f);
     } else if (k == QLatin1String("strokeAlign")) {
@@ -465,9 +367,12 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
                 d.push_back(x.toFloat());
         e().stroke.dashes = d;
     } else if (k == QLatin1String("effects")) {
-        std::vector<Effect> fx;
-        for (const QVariant& x : v.toList())
-            fx.push_back(effectFromMap(x.toMap()));
+        std::vector<Effect> fx = effectsFromList(v);
+        if (fx != cur.effects)
+            e().effectStyle.clear();
+        for (size_t i = 0; i < fx.size() && i < cur.effects.size(); ++i)
+            if (!fx[i].colorVar.isEmpty() && fx[i].colorVar == cur.effects[i].colorVar && fx[i].color != cur.effects[i].color)
+                fx[i].colorVar.clear();
         e().effects = fx;
     } else if (k == QLatin1String("constraintH")) {
         e().constraintH = enumValue(v, kConsH, ConstraintH::Left);
@@ -589,20 +494,9 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
     } else if (k == QLatin1String("description")) {
         e().description = v.toString();
     } else if (k == QLatin1String("grids")) {
-        std::vector<LayoutGrid> grids;
-        for (const QVariant& x : v.toList()) {
-            QVariantMap gm = x.toMap();
-            LayoutGrid g;
-            g.kind = enumValue(gm.value(QStringLiteral("kind")), kGridKinds, LayoutGrid::Kind::Columns);
-            g.count = gm.value(QStringLiteral("count"), 12).toInt();
-            g.size = gm.value(QStringLiteral("size"), 10).toFloat();
-            g.gutter = gm.value(QStringLiteral("gutter"), 20).toFloat();
-            g.margin = gm.value(QStringLiteral("margin"), 0).toFloat();
-            if (gm.contains(QStringLiteral("color")))
-                g.color = toSk(gm.value(QStringLiteral("color")));
-            g.visible = gm.value(QStringLiteral("visible"), true).toBool();
-            grids.push_back(g);
-        }
+        std::vector<LayoutGrid> grids = gridsFromList(v);
+        if (grids != cur.grids)
+            e().gridStyle.clear();
         e().grids = grids;
     } else if (k == QLatin1String("exports")) {
         std::vector<ExportSetting> ex;

@@ -26,7 +26,10 @@ enum OverrideBit : std::uint32_t {
     OvBlend = 1u << 12,
     OvComponent = 1u << 13, // nested instance swapped
     OvVariantProps = 1u << 14,
+    OvBindings = 1u << 15,
 };
+
+struct Library;
 
 // All per-node data except tree links. Copyable so undo can snapshot it.
 struct Props {
@@ -83,6 +86,12 @@ struct Props {
     std::vector<ExportSetting> exports;
 
     SkColor4f pageBackground = {0.118f, 0.118f, 0.118f, 1.f};
+
+    // Styles and variables. Style ids travel with the property group they drive.
+    QString fillStyle, strokeStyle, textStyleId, effectStyle, gridStyle;
+    QMap<QString, QString> bindings;      // bindable field key -> variable id (see Variables.h)
+    QMap<QString, QString> variableModes; // collection id -> mode id, inherited by descendants
+    std::shared_ptr<const Library> library; // Document node only; replaced (never mutated) on edit
 
     bool operator==(const Props&) const = default;
 };

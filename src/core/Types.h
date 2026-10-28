@@ -93,6 +93,7 @@ struct Paint {
     QString imageHash;
     ImageScaleMode scaleMode = ImageScaleMode::Fill;
     float imageScale = 1.f;
+    QString colorVar; // bound color variable id (solid paints)
     bool operator==(const Paint&) const = default;
 
     static Paint solid(SkColor4f c)
@@ -129,6 +130,7 @@ struct Effect {
     float spread = 0.f;
     BlendMode blend = BlendMode::Normal;
     bool showBehindTransparent = false;
+    QString colorVar; // bound color variable id
     bool operator==(const Effect&) const = default;
 };
 
