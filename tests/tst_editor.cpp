@@ -1,5 +1,6 @@
 #include "Editor.h"
 #include "LayerModel.h"
+#include "Scripting.h"
 
 #include "core/Serializer.h"
 #include "core/Text.h"
@@ -844,6 +845,35 @@ private slots:
         ed->selectNode(qint64(t), false);
         ed->detachTextFromPath();
         QCOMPARE(doc().at(t).p.textPath, kNoNode);
+    }
+
+    void scriptsAndPlugins()
+    {
+        const QString out = ed->runScript(QStringLiteral(
+            "var ids = [];\n"
+            "for (var i = 0; i < 3; ++i) {\n"
+            "    var id = drav.create('RECTANGLE', drav.page(), { name: 'Tile ' + (i + 1), x: i * 60, y: 0, w: 50, h: 50 });\n"
+            "    drav.set(id, 'fills', [{ type: 'SOLID', color: '#ff0000' }]);\n"
+            "    ids.push(id);\n"
+            "}\n"
+            "drav.select(ids);\n"
+            "print('made', ids.length, drav.get(ids[2]).name);\n"
+            "drav.get(ids[1]).x\n"));
+        QCOMPARE(out, QStringLiteral("made 3 Tile 3\n60"));
+        QCOMPARE(doc().selection().size(), size_t(3));
+        QCOMPARE(doc().at(doc().selection()[0]).p.fills.at(0).color, (SkColor4f{1, 0, 0, 1}));
+        ed->undo(); // the whole run is one step
+        QVERIFY(doc().at(doc().currentPage()).children.empty());
+
+        // An error rolls everything back.
+        QVERIFY(ed->runScript("drav.create('RECTANGLE', 0); nosuchfunction();").startsWith("Line 1"));
+        QVERIFY(doc().at(doc().currentPage()).children.empty());
+
+        // Runaway scripts are stopped; scripts can't reach the network.
+        bool ok = true;
+        QVERIFY(scripting::run(*ed, "while (true) {}", &ok, 200).startsWith("Stopped"));
+        QVERIFY(!ok);
+        QVERIFY(ed->runScript("typeof XMLHttpRequest").contains("undefined"));
     }
 
     void svgImport()

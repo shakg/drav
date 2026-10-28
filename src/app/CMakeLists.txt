@@ -1,6 +1,6 @@
 # Editor logic, testable without a window.
 add_library(drav_editor STATIC
-    Editor.h Editor.cpp EditorCommands.cpp EditorProps.cpp EditorLibrary.cpp EditorComponents.cpp EditorPrecision.cpp EditorFind.cpp EditorSafety.cpp PropMaps.h Demo.cpp
+    Editor.h Editor.cpp EditorCommands.cpp EditorProps.cpp EditorLibrary.cpp EditorComponents.cpp EditorPrecision.cpp EditorFind.cpp EditorSafety.cpp Scripting.h Scripting.cpp PropMaps.h Demo.cpp
     Tools.h Tools.cpp
     LayerModel.h LayerModel.cpp
     SvgImport.h SvgImport.cpp
@@ -19,7 +19,7 @@ set(DRAV_QML
     ExportSection.qml DesignPanel.qml LayersPanel.qml PagesList.qml AssetsPanel.qml Toolbar.qml MainMenu.qml
     VariablePicker.qml StylePreview.qml StylePicker.qml StyleChip.qml StyleEditor.qml LocalAssets.qml VariablesWindow.qml
     VariableCell.qml ComponentPropsSection.qml FindBar.qml RenameDialog.qml VersionsWindow.qml
-    InspectPanel.qml)
+    InspectPanel.qml ScriptConsole.qml)
 list(TRANSFORM DRAV_QML PREPEND "${PROJECT_SOURCE_DIR}/qml/")
 set_source_files_properties("${PROJECT_SOURCE_DIR}/qml/Theme.qml" PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 foreach(f IN LISTS DRAV_QML)

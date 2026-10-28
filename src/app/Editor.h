@@ -295,6 +295,12 @@ public:
     Q_INVOKABLE void placeLibraryComponent(const QString& libId, qint64 sourceId);
     Q_INVOKABLE void refreshLibraries() { emit librariesChanged(); }
 
+    // ---- scripting (Scripting.cpp) ----
+    Q_INVOKABLE QString runScript(const QString& code);
+    Q_INVOKABLE QVariantList plugins() const; // [{path, name, description}]
+    Q_INVOKABLE QString runPlugin(const QString& path);
+    Q_INVOKABLE QString pluginsFolder() const;
+
     // ---- component properties (EditorComponents.cpp) ----
     // type: "BOOLEAN", "TEXT", "INSTANCE_SWAP". Adds to the selected component or component set.
     Q_INVOKABLE QString addComponentProp(const QString& type, const QString& name);

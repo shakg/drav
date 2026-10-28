@@ -61,6 +61,7 @@ ApplicationWindow {
                             onImportRequested: importDialog.open()
                             onVersionsRequested: versionsWindow.show()
                             onFindRequested: findBar.show()
+                            onConsoleRequested: scriptConsole.show()
                             onExportRequested: { exportDialog.currentFile = "file:///" + editor.suggestedExportName("PNG"); exportDialog.open() }
                         }
                     }
@@ -220,6 +221,7 @@ ApplicationWindow {
     }
     RenameDialog { id: renameDialog }
     VersionsWindow { id: versionsWindow; objectName: "versionsWindow" }
+    ScriptConsole { id: scriptConsole; objectName: "scriptConsole" }
 
     // Offer to recover work left by a crash.
     Component.onCompleted: Qt.callLater(() => { recoveryDialog.files = editor.recoveryFiles(); if (recoveryDialog.files.length) recoveryDialog.open() })

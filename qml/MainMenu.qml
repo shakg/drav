@@ -10,6 +10,7 @@ Menu {
     signal exportRequested()
     signal versionsRequested()
     signal findRequested()
+    signal consoleRequested()
 
     component Item_: MenuItem {
         property string shortcut
@@ -19,6 +20,26 @@ Menu {
             Text { text: parent.parent.text; color: parent.parent.enabled ? "white" : Theme.textFaint; font.pixelSize: 12; width: 180 }
             Text { text: parent.parent.shortcut; color: Theme.textFaint; font.pixelSize: 12 }
         }
+    }
+
+    Menu {
+        id: pluginsMenu
+        title: qsTr("Plugins")
+        property var list: []
+        onAboutToShow: list = editor.plugins()
+        Instantiator {
+            model: pluginsMenu.list
+            delegate: MenuItem {
+                required property var modelData
+                text: modelData.name
+                onTriggered: editor.runPlugin(modelData.path)
+            }
+            onObjectAdded: (i, o) => pluginsMenu.insertItem(i, o)
+            onObjectRemoved: (i, o) => pluginsMenu.removeItem(o)
+        }
+        MenuSeparator {}
+        MenuItem { text: qsTr("Script console…"); onTriggered: root.consoleRequested() }
+        MenuItem { text: qsTr("Open plugins folder"); onTriggered: Qt.openUrlExternally("file://" + editor.pluginsFolder()) }
     }
 
     Menu {
