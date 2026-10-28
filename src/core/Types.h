@@ -5,6 +5,7 @@
 #include <include/core/SkPath.h>
 #include <include/core/SkRect.h>
 
+#include <QMap>
 #include <QString>
 
 #include <array>
@@ -171,6 +172,10 @@ enum class TextDecoration : std::uint8_t { None, Underline, Strikethrough };
 
 struct TextStyle {
     QString family = QStringLiteral("Inter");
+    // OpenType features that differ from the font's defaults ("tnum" -> 1, "liga" -> 0, ...)
+    // and variable font axes other than weight ("wdth" -> 87.5, ...).
+    QMap<QString, int> features;
+    QMap<QString, float> axes;
     int weight = 400;
     bool italic = false;
     float size = 16.f;
@@ -185,6 +190,47 @@ struct TextStyle {
     TextDecoration decoration = TextDecoration::None;
     int maxLines = 0;
     bool operator==(const TextStyle&) const = default;
+};
+
+// Character style override for [start, end) of a text layer's characters (UTF-16 indices).
+// Only the fields named in `mask` apply; the rest come from the layer's TextStyle and fills.
+enum TextRunField : std::uint32_t {
+    RunFamily = 1u << 0,
+    RunWeight = 1u << 1,
+    RunItalic = 1u << 2,
+    RunSize = 1u << 3,
+    RunLetterSpacing = 1u << 4,
+    RunDecoration = 1u << 5,
+    RunCase = 1u << 6,
+    RunFill = 1u << 7,
+    RunLink = 1u << 8,
+};
+struct TextRun {
+    int start = 0, end = 0;
+    std::uint32_t mask = 0;
+    QString family;
+    int weight = 400;
+    bool italic = false;
+    float size = 16;
+    float letterSpacing = 0;
+    TextDecoration decoration = TextDecoration::None;
+    TextCase textCase = TextCase::Original;
+    SkColor4f fill = SkColors::kBlack;
+    QString link;
+    bool operator==(const TextRun&) const = default;
+    bool sameStyle(const TextRun& o) const
+    {
+        TextRun a = *this, b = o;
+        a.start = b.start = a.end = b.end = 0;
+        return a == b;
+    }
+};
+
+enum class ListType : std::uint8_t { None, Bullet, Ordered };
+struct ParagraphAttr {
+    ListType list = ListType::None;
+    int indent = 0; // list nesting level
+    bool operator==(const ParagraphAttr&) const = default;
 };
 
 enum class BooleanOpType : std::uint8_t { Union, Subtract, Intersect, Exclude };

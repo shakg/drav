@@ -2,6 +2,7 @@
 #include "LayerModel.h"
 
 #include "core/Serializer.h"
+#include "core/Text.h"
 
 #include <QKeyEvent>
 #include <QTemporaryDir>
@@ -381,6 +382,61 @@ private slots:
         ed->deleteComponentProp(vis);
         QVERIFY(doc().at(shape).p.propRefs.isEmpty());
         QVERIFY(doc().at(comp).p.componentProps.empty());
+    }
+
+    void richTextEditing()
+    {
+        ed->setTool("text");
+        click({100, 100});
+        type("Hello world");
+        // Select "world" with Shift+Left and make it bold through the inspector.
+        for (int i = 0; i < 5; ++i)
+            key(Qt::Key_Left, Qt::ShiftModifier);
+        ed->setProp("fontWeight", 700);
+        NodeId t = doc().selection().at(0);
+        QCOMPARE(doc().at(t).p.textRuns.size(), size_t(1));
+        QCOMPARE(doc().at(t).p.textRuns[0].start, 6);
+        QCOMPARE(ed->props().value("fontWeight").toInt(), 700);
+        key(Qt::Key_I, Qt::ControlModifier);
+        QVERIFY(text::styleAt(doc().at(t).p, 8).italic);
+        QVERIFY(!text::styleAt(doc().at(t).p, 2).italic);
+
+        // Lists: Enter continues, Enter on an empty item ends the list.
+        key(Qt::Key_End);
+        ed->setProp("listType", "BULLET");
+        key(Qt::Key_Return);
+        QCOMPARE(doc().at(t).p.paragraphs.size(), size_t(2));
+        QCOMPARE(doc().at(t).p.paragraphs[1].list, ListType::Bullet);
+        key(Qt::Key_Tab);
+        QCOMPARE(doc().at(t).p.paragraphs[1].indent, 1);
+        key(Qt::Key_Return);
+        QVERIFY(doc().at(t).p.paragraphs.size() < 2 || doc().at(t).p.paragraphs[1].list == ListType::None);
+
+        // Leaving edit mode and setting the weight on the layer clears per-character weights.
+        key(Qt::Key_Escape);
+        ed->setProp("fontWeight", 300);
+        for (const TextRun& r : doc().at(t).p.textRuns)
+            QVERIFY(!(r.mask & RunWeight));
+        QVERIFY(text::styleAt(doc().at(t).p, 8).italic);
+    }
+
+    void demoDuplicateKeepsPropValues()
+    {
+        ed->loadDemo();
+        NodeId dark = kNoNode;
+        doc().walk(doc().currentPage(), [&](const Node& n) {
+            if (n.p.name == QStringLiteral("Card (dark)"))
+                dark = n.id;
+            return !dark;
+        });
+        QVERIFY(dark);
+        QStringList labels;
+        doc().walk(dark, [&](const Node& n) {
+            if (n.type() == NodeType::Instance)
+                labels << QString::number(n.p.propValues.size()) + ":" + doc().at(n.children.front()).p.text;
+            return true;
+        });
+        QCOMPARE(labels, (QStringList{"0:Get started", "1:Learn more"}));
     }
 
     void svgImport()

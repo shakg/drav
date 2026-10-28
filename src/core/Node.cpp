@@ -30,7 +30,7 @@ std::uint32_t diffOverrideMask(const Props& a, const Props& b)
     if (a.strokes != b.strokes || a.strokeStyle != b.strokeStyle) m |= OvStrokes;
     if (a.stroke != b.stroke) m |= OvStrokeStyle;
     if (a.effects != b.effects || a.effectStyle != b.effectStyle) m |= OvEffects;
-    if (a.text != b.text) m |= OvText;
+    if (a.text != b.text || a.textRuns != b.textRuns || a.paragraphs != b.paragraphs) m |= OvText;
     if (a.textStyle != b.textStyle || a.textStyleId != b.textStyleId) m |= OvTextStyle;
     if (a.bindings != b.bindings) m |= OvBindings;
     if (a.propValues != b.propValues) m |= OvPropValues;
@@ -60,7 +60,11 @@ void copyGroups(Props& dst, const Props& src, std::uint32_t mask)
         dst.effects = src.effects;
         dst.effectStyle = src.effectStyle;
     }
-    if (mask & OvText) dst.text = src.text;
+    if (mask & OvText) {
+        dst.text = src.text;
+        dst.textRuns = src.textRuns;
+        dst.paragraphs = src.paragraphs;
+    }
     if (mask & OvTextStyle) {
         dst.textStyle = src.textStyle;
         dst.textStyleId = src.textStyleId;

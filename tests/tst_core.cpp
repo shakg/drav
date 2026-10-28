@@ -693,6 +693,104 @@ private slots:
         QCOMPARE(d2.at(label).p.propRefs, d.at(label).p.propRefs);
     }
 
+    void richTextRunsAndSplice()
+    {
+        Props p;
+        p.type = NodeType::Text;
+        p.text = QStringLiteral("Hello world");
+        TextRun bold;
+        bold.weight = 700;
+        text::styleRange(p, 6, 11, RunWeight, bold); // "world"
+        QCOMPARE(p.textRuns.size(), size_t(1));
+        QCOMPARE(p.textRuns[0].start, 6);
+        QCOMPARE(text::styleAt(p, 7).weight, 700);
+        QCOMPARE(text::styleAt(p, 2).weight, 400);
+
+        // Typing at the end of the bold run extends it; typing before it shifts it.
+        text::splice(p, 11, 0, QStringLiteral("!"));
+        QCOMPARE(p.textRuns[0].end, 12);
+        text::splice(p, 0, 0, QStringLiteral(">> "));
+        QCOMPARE(p.textRuns[0].start, 9);
+        QCOMPARE(p.text, QStringLiteral(">> Hello world!"));
+        // Deleting across the run start trims it.
+        text::splice(p, 7, 4, QString()); // removes "o wo"
+        QCOMPARE(p.text, QStringLiteral(">> Hellrld!"));
+        QCOMPARE(p.textRuns[0].start, 7);
+        QCOMPARE(p.textRuns[0].end, 11);
+
+        // Same style next to each other merges; clearing removes the run.
+        text::styleRange(p, 3, 7, RunWeight, bold);
+        QCOMPARE(p.textRuns.size(), size_t(1));
+        QCOMPARE(p.textRuns[0].start, 3);
+        TextRun big;
+        big.size = 30;
+        text::styleRange(p, 0, 2, RunSize, big);
+        QCOMPARE(p.textRuns.size(), size_t(2));
+        text::clearRange(p, 0, int(p.text.size()), RunWeight);
+        QCOMPARE(p.textRuns.size(), size_t(1));
+        QCOMPARE(p.textRuns[0].mask, std::uint32_t(RunSize));
+        // A larger run makes the layer taller.
+        Props plain = p;
+        plain.textRuns.clear();
+        QVERIFY(text::measure(p, -1).height > text::measure(plain, -1).height);
+    }
+
+    void listsAndDisplayMap()
+    {
+        Props p;
+        p.type = NodeType::Text;
+        p.text = QStringLiteral("one\ntwo\nthree");
+        ParagraphAttr ordered;
+        ordered.list = ListType::Ordered;
+        text::setParagraphs(p, 0, 2, ordered);
+        auto map = text::displayMap(p);
+        // "1.  one\n2.  two\n3.  three": each paragraph gains a 4-char marker.
+        QCOMPARE(map[0], 4);
+        QCOMPARE(map[4], 12);
+        QCOMPARE(text::fromDisplay(map, 12), 4);
+        QCOMPARE(map[int(p.text.size())], int(p.text.size()) + 12);
+
+        // A new line inside a list item continues the list; joining lines merges attributes.
+        text::splice(p, 3, 0, QStringLiteral("\n"));
+        QCOMPARE(p.paragraphs.size(), size_t(4));
+        QCOMPARE(p.paragraphs[1].list, ListType::Ordered);
+        text::splice(p, 3, 1, QString());
+        QCOMPARE(p.paragraphs.size(), size_t(3));
+
+        // Paragraph spacing adds one display line per break.
+        p.paragraphs.clear();
+        p.textStyle.paragraphSpacing = 10;
+        map = text::displayMap(p);
+        QCOMPARE(map[4], 5);
+        QCOMPARE(map[8], 10);
+    }
+
+    void richTextRoundTrip()
+    {
+        Document d;
+        d.begin("t");
+        NodeId t = d.create(NodeType::Text, page(d));
+        Props& p = d.edit(t);
+        p.text = QStringLiteral("a\nb");
+        p.textStyle.features.insert(QStringLiteral("tnum"), 1);
+        p.textStyle.axes.insert(QStringLiteral("opsz"), 32);
+        TextRun link;
+        link.link = QStringLiteral("https://example.com");
+        link.fill = SkColors::kRed;
+        text::styleRange(p, 0, 1, RunLink | RunFill, link);
+        ParagraphAttr bullet;
+        bullet.list = ListType::Bullet;
+        bullet.indent = 1;
+        text::setParagraphs(p, 1, 1, bullet);
+        d.commit();
+        Document d2;
+        QVERIFY(io::load(d2, io::save(d)));
+        QCOMPARE(d2.at(t).p.textRuns, d.at(t).p.textRuns);
+        QCOMPARE(d2.at(t).p.paragraphs, d.at(t).p.paragraphs);
+        QCOMPARE(d2.at(t).p.textStyle.features, d.at(t).p.textStyle.features);
+        QCOMPARE(d2.at(t).p.textStyle.axes, d.at(t).p.textStyle.axes);
+    }
+
     void smoothRectGeometry()
     {
         SkPath p = smoothRect(100, 100, {20, 20, 20, 20}, 0.6f);

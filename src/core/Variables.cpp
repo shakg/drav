@@ -1,6 +1,7 @@
 #include "Variables.h"
 
 #include "Document.h"
+#include "Text.h"
 
 namespace drav::vars {
 
@@ -227,8 +228,8 @@ void apply(const Document& doc, NodeId id, Props& p, std::optional<SkSize>* size
                 setNumber(p, k, v->number);
             break;
         case VarType::String:
-            if (k == QLatin1String("characters"))
-                p.text = v->string;
+            if (k == QLatin1String("characters") && p.text != v->string)
+                text::splice(p, 0, int(p.text.size()), v->string);
             else if (k == QLatin1String("fontFamily") && !v->string.isEmpty())
                 p.textStyle.family = v->string;
             break;

@@ -9,6 +9,29 @@ ColumnLayout {
     Layout.fillWidth: true
 
     Section {
+        id: missing
+        readonly property var fonts: { editor.library; editor.undoChanged; return editor.missingFonts() }
+        visible: fonts.length > 0
+        title: qsTr("Missing fonts")
+        Repeater {
+            model: missing.fonts
+            RowLayout {
+                required property string modelData
+                Layout.fillWidth: true
+                Icon { name: "warning"; size: 13; color: Theme.danger }
+                Text { text: modelData; color: Theme.text; font.pixelSize: Theme.fontSize; Layout.preferredWidth: 80; elide: Text.ElideRight }
+                Dropdown {
+                    Layout.fillWidth: true
+                    current: null
+                    displayText: qsTr("Replace with…")
+                    model: editor.fontFamilies
+                    onPicked: v => editor.replaceFont(modelData, v)
+                }
+            }
+        }
+    }
+
+    Section {
         title: qsTr("Local variables")
         RowLayout {
             Layout.fillWidth: true

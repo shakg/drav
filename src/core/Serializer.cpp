@@ -201,11 +201,24 @@ std::vector<Effect> effects(const QCborValue& v)
 
 QCborMap textStyleToCbor(const TextStyle& t)
 {
-    return QCborMap{{K("family"), t.family}, {K("weight"), t.weight}, {K("italic"), t.italic}, {K("size"), t.size},
+    QCborMap m{{K("family"), t.family}, {K("weight"), t.weight}, {K("italic"), t.italic}, {K("size"), t.size},
         {K("lh"), t.lineHeight}, {K("lhPct"), t.lineHeightPercent}, {K("ls"), t.letterSpacing},
         {K("ps"), t.paragraphSpacing}, {K("ah"), int(t.alignH)}, {K("av"), int(t.alignV)},
         {K("resize"), int(t.autoResize)}, {K("case"), int(t.textCase)}, {K("deco"), int(t.decoration)},
         {K("maxLines"), t.maxLines}};
+    if (!t.features.isEmpty()) {
+        QCborMap f;
+        for (auto it = t.features.begin(); it != t.features.end(); ++it)
+            f[it.key()] = it.value();
+        m[K("features")] = f;
+    }
+    if (!t.axes.isEmpty()) {
+        QCborMap a;
+        for (auto it = t.axes.begin(); it != t.axes.end(); ++it)
+            a[it.key()] = it.value();
+        m[K("axes")] = a;
+    }
+    return m;
 }
 TextStyle textStyleFromCbor(const QCborMap& f)
 {
@@ -224,6 +237,12 @@ TextStyle textStyleFromCbor(const QCborMap& f)
     t.textCase = TextCase(integer(f, "case"));
     t.decoration = TextDecoration(integer(f, "deco"));
     t.maxLines = integer(f, "maxLines");
+    const QCborMap feats = f.value(K("features")).toMap();
+    for (auto it = feats.begin(); it != feats.end(); ++it)
+        t.features.insert(it.key().toString(), int(it.value().toInteger()));
+    const QCborMap axes = f.value(K("axes")).toMap();
+    for (auto it = axes.begin(); it != axes.end(); ++it)
+        t.axes.insert(it.key().toString(), float(it.value().toDouble()));
     return t;
 }
 
@@ -326,6 +345,29 @@ QCborMap propsToCbor(const Props& p)
     if (p.type == NodeType::Text) {
         m[K("text")] = p.text;
         m[K("font")] = textStyleToCbor(p.textStyle);
+        if (!p.textRuns.empty()) {
+            QCborArray runs;
+            for (const TextRun& r : p.textRuns) {
+                QCborMap rm{{K("s"), r.start}, {K("e"), r.end}, {K("mask"), qint64(r.mask)}};
+                if (r.mask & RunFamily) rm[K("family")] = r.family;
+                if (r.mask & RunWeight) rm[K("weight")] = r.weight;
+                if (r.mask & RunItalic) rm[K("italic")] = r.italic;
+                if (r.mask & RunSize) rm[K("size")] = r.size;
+                if (r.mask & RunLetterSpacing) rm[K("ls")] = r.letterSpacing;
+                if (r.mask & RunDecoration) rm[K("deco")] = int(r.decoration);
+                if (r.mask & RunCase) rm[K("case")] = int(r.textCase);
+                if (r.mask & RunFill) rm[K("fill")] = color(r.fill);
+                if (r.mask & RunLink) rm[K("link")] = r.link;
+                runs.append(rm);
+            }
+            m[K("runs")] = runs;
+        }
+        if (!p.paragraphs.empty()) {
+            QCborArray paras;
+            for (const ParagraphAttr& a : p.paragraphs)
+                paras.append(QCborArray{int(a.list), a.indent});
+            m[K("paragraphs")] = paras;
+        }
     }
     if (p.type == NodeType::BooleanOp)
         m[K("boolOp")] = int(p.boolOp);
@@ -460,6 +502,27 @@ Props propsFromCbor(const QCborMap& m)
     p.text = str(m, "text");
     if (m.contains(K("font")))
         p.textStyle = textStyleFromCbor(m.value(K("font")).toMap());
+    for (const QCborValue& rv : m.value(K("runs")).toArray()) {
+        const QCborMap rm = rv.toMap();
+        TextRun r;
+        r.start = integer(rm, "s");
+        r.end = integer(rm, "e");
+        r.mask = std::uint32_t(rm.value(K("mask")).toInteger());
+        r.family = str(rm, "family");
+        r.weight = integer(rm, "weight", 400);
+        r.italic = flag(rm, "italic");
+        r.size = num(rm, "size", 16);
+        r.letterSpacing = num(rm, "ls");
+        r.decoration = TextDecoration(integer(rm, "deco"));
+        r.textCase = TextCase(integer(rm, "case"));
+        r.fill = color(rm.value(K("fill")), r.fill);
+        r.link = str(rm, "link");
+        p.textRuns.push_back(r);
+    }
+    for (const QCborValue& av : m.value(K("paragraphs")).toArray()) {
+        const QCborArray a = av.toArray();
+        p.paragraphs.push_back({ListType(a.at(0).toInteger()), int(a.at(1).toInteger())});
+    }
     p.boolOp = BooleanOpType(integer(m, "boolOp"));
     p.componentId = NodeId(m.value(K("componentId")).toInteger());
     p.sourceId = NodeId(m.value(K("sourceId")).toInteger());

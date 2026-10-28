@@ -1,6 +1,7 @@
 #include "Editor.h"
 
 #include "PropMaps.h"
+#include "Tools.h"
 
 #include "core/Text.h"
 #include "core/Variables.h"
@@ -14,6 +15,18 @@ namespace drav {
 using namespace maps;
 
 namespace {
+
+std::uint32_t runField(const QString& k)
+{
+    static const QHash<QString, std::uint32_t> m = {{QStringLiteral("fontFamily"), RunFamily},
+        {QStringLiteral("fontWeight"), RunWeight}, {QStringLiteral("italic"), RunItalic},
+        {QStringLiteral("fontSize"), RunSize}, {QStringLiteral("letterSpacing"), RunLetterSpacing},
+        {QStringLiteral("decoration"), RunDecoration}, {QStringLiteral("textCase"), RunCase},
+        {QStringLiteral("fills"), RunFill}, {QStringLiteral("link"), RunLink}};
+    return m.value(k, 0);
+}
+
+const char* const kLists[] = {"NONE", "BULLET", "ORDERED"};
 
 float rotationOf(const SkMatrix& m)
 {
@@ -100,6 +113,24 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
         set("textCase", enumName(t.textCase, kCase));
         set("decoration", enumName(t.decoration, kDeco));
         set("maxLines", t.maxLines);
+        QVariantMap features;
+        for (auto it = t.features.begin(); it != t.features.end(); ++it)
+            features.insert(it.key(), it.value());
+        set("features", features);
+        QVariantMap axesMap;
+        for (auto it = t.axes.begin(); it != t.axes.end(); ++it)
+            axesMap.insert(it.key(), it.value());
+        set("axes", axesMap);
+        const int paras = int(p.text.count(QLatin1Char('\n'))) + 1;
+        ListType lt = p.paragraphs.empty() ? ListType::None : p.paragraphs[0].list;
+        bool mixedList = false;
+        for (int i = 1; i < paras; ++i)
+            mixedList |= (i < int(p.paragraphs.size()) ? p.paragraphs[i].list : ListType::None) != lt;
+        set("listType", mixedList ? QVariant() : enumName(lt, kLists));
+        bool runs = false;
+        for (const TextRun& r : p.textRuns)
+            runs |= (r.mask & ~RunLink) != 0;
+        set("hasRuns", runs);
     }
     if (p.type == NodeType::Ellipse) {
         set("arcStart", p.arcStart);
@@ -255,6 +286,8 @@ QVariantMap Editor::props() const
         first.insert(QStringLiteral("selH"), std::round(b.height() * 100) / 100);
     }
     first.insert(QStringLiteral("sameType"), sameType);
+    if (textEditing() && sel.size() == 1)
+        textRangeProps(first);
     for (auto it = first.begin(); it != first.end(); ++it)
         out.insert(it.key(), it.value());
     return out;
@@ -268,6 +301,8 @@ void Editor::setProp(const QString& key, const QVariant& value)
         m_doc->commit();
         return;
     }
+    if (textEditing() && applyTextRange(key, value))
+        return;
     auto sel = selected();
     if (sel.empty())
         return;
@@ -332,6 +367,14 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
             QStringLiteral("textCase"), QStringLiteral("decoration")};
         if (!cur.textStyleId.isEmpty() && typo.contains(k))
             e().textStyleId.clear();
+        // Setting a character property on the whole layer replaces per-character values.
+        if (cur.type == NodeType::Text && runField(k) && k != QLatin1String("link")) {
+            bool overridden = false;
+            for (const TextRun& r : cur.textRuns)
+                overridden |= (r.mask & runField(k)) != 0;
+            if (overridden)
+                text::clearRange(e(), 0, int(cur.text.size()), runField(k));
+        }
     }
     if (k == QLatin1String("x") || k == QLatin1String("y")) {
         const bool x = k == QLatin1String("x");
@@ -496,7 +539,35 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
     } else if (k == QLatin1String("maxH")) {
         e().layoutChild.maxH = std::max(0.f, f);
     } else if (cur.type == NodeType::Text && k == QLatin1String("characters")) {
-        e().text = v.toString();
+        Props& p = e();
+        text::splice(p, 0, int(p.text.size()), v.toString());
+    } else if (cur.type == NodeType::Text && k == QLatin1String("listType")) {
+        Props& p = e();
+        ParagraphAttr a;
+        a.list = enumValue(v, kLists, ListType::None);
+        text::setParagraphs(p, 0, int(p.text.count(QLatin1Char('\n'))), a);
+    } else if (cur.type == NodeType::Text && k == QLatin1String("fontFeature")) {
+        const QVariantMap m = v.toMap();
+        const QString tag = m.value(QStringLiteral("tag")).toString();
+        if (tag.size() == 4) {
+            Props& p = e();
+            if (m.value(QStringLiteral("value")).isNull())
+                p.textStyle.features.remove(tag);
+            else
+                p.textStyle.features.insert(tag, m.value(QStringLiteral("value")).toInt());
+            p.textStyleId.clear();
+        }
+    } else if (cur.type == NodeType::Text && k == QLatin1String("fontAxis")) {
+        const QVariantMap m = v.toMap();
+        const QString tag = m.value(QStringLiteral("tag")).toString();
+        if (tag.size() == 4 && tag != QLatin1String("wght")) {
+            Props& p = e();
+            if (m.value(QStringLiteral("value")).isNull())
+                p.textStyle.axes.remove(tag);
+            else
+                p.textStyle.axes.insert(tag, m.value(QStringLiteral("value")).toFloat());
+            p.textStyleId.clear();
+        }
     } else if (cur.type == NodeType::Text && k == QLatin1String("fontFamily")) {
         e().textStyle.family = v.toString();
     } else if (cur.type == NodeType::Text && k == QLatin1String("fontWeight")) {
@@ -561,6 +632,167 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         }
         e().exports = ex;
     }
+}
+
+bool Editor::applyTextRange(const QString& key, const QVariant& v)
+{
+    auto* tool = static_cast<TextEditTool*>(m_tool);
+    const NodeId id = tool->node();
+    if (!m_doc->isAttached(id))
+        return false;
+    const int a = tool->selStart(), b = tool->selEnd();
+    const Props& cur = m_doc->at(id).p;
+    if (key == QLatin1String("listType")) {
+        auto [first, last] = text::paragraphRange(cur.text, a, b);
+        m_doc->breakMerge();
+        m_doc->begin(tr("List"));
+        ParagraphAttr attr;
+        attr.list = enumValue(v, kLists, ListType::None);
+        text::setParagraphs(m_doc->edit(id), first, last, attr);
+        m_doc->commit();
+        return true;
+    }
+    const std::uint32_t field = runField(key);
+    if (!field || a == b)
+        return false; // caret only: the layer-wide edit applies
+    TextRun val;
+    switch (field) {
+    case RunFamily: val.family = v.toString(); break;
+    case RunWeight: val.weight = std::clamp(v.toInt(), 100, 1000); break;
+    case RunItalic: val.italic = v.toBool(); break;
+    case RunSize: val.size = std::clamp(v.toFloat(), 1.f, 2000.f); break;
+    case RunLetterSpacing: val.letterSpacing = v.toFloat(); break;
+    case RunDecoration: val.decoration = enumValue(v, kDeco, TextDecoration::None); break;
+    case RunCase: val.textCase = enumValue(v, kCase, TextCase::Original); break;
+    case RunLink: val.link = v.toString().trimmed(); break;
+    case RunFill: {
+        const auto paints = paintsFromList(v);
+        auto it = std::find_if(paints.begin(), paints.end(), [](const Paint& p) { return p.visible && p.type == PaintType::Solid; });
+        if (it == paints.end())
+            return true;
+        val.fill = it->color;
+        val.fill.fA *= it->opacity;
+        break;
+    }
+    default: return false;
+    }
+    if (!m_live)
+        m_doc->breakMerge();
+    m_doc->begin(tr("Style text"));
+    if (m_live)
+        m_doc->setMergeKey(QStringLiteral("live:") + m_liveKey);
+    if (field == RunLink && val.link.isEmpty())
+        text::clearRange(m_doc->edit(id), a, b, RunLink);
+    else
+        text::styleRange(m_doc->edit(id), a, b, field, val);
+    m_doc->commit();
+    return true;
+}
+
+void Editor::textRangeProps(QVariantMap& out) const
+{
+    auto* tool = static_cast<TextEditTool*>(m_tool);
+    const NodeId id = tool->node();
+    if (!m_doc->isAttached(id))
+        return;
+    const Props& p = m_doc->at(id).p;
+    const int a = tool->selStart(), b = tool->selEnd();
+    out.insert(QStringLiteral("textRange"), QVariantList{a, b});
+    auto [first, last] = text::paragraphRange(p.text, a, b);
+    auto listAt = [&](int i) { return i < int(p.paragraphs.size()) ? p.paragraphs[i].list : ListType::None; };
+    bool mixedList = false;
+    for (int i = first + 1; i <= last; ++i)
+        mixedList |= listAt(i) != listAt(first);
+    out.insert(QStringLiteral("listType"), mixedList ? QVariant() : enumName(listAt(first), kLists));
+    if (a == b)
+        return;
+    // Effective character style over the range; differing values show as mixed.
+    TextRun s0 = text::styleAt(p, a);
+    std::uint32_t mixed = 0;
+    for (int i = a + 1; i < b; ++i) {
+        TextRun s = text::styleAt(p, i);
+        if (s.family != s0.family) mixed |= RunFamily;
+        if (s.weight != s0.weight) mixed |= RunWeight;
+        if (s.italic != s0.italic) mixed |= RunItalic;
+        if (s.size != s0.size) mixed |= RunSize;
+        if (s.letterSpacing != s0.letterSpacing) mixed |= RunLetterSpacing;
+        if (s.decoration != s0.decoration) mixed |= RunDecoration;
+        if (s.textCase != s0.textCase) mixed |= RunCase;
+        if (s.link != s0.link) mixed |= RunLink;
+    }
+    auto put = [&](const char* k, std::uint32_t f, const QVariant& v) { out.insert(QLatin1String(k), mixed & f ? QVariant() : v); };
+    put("fontFamily", RunFamily, s0.family);
+    put("fontWeight", RunWeight, s0.weight);
+    put("italic", RunItalic, s0.italic);
+    put("fontSize", RunSize, s0.size);
+    put("letterSpacing", RunLetterSpacing, s0.letterSpacing);
+    put("decoration", RunDecoration, enumName(s0.decoration, kDeco));
+    put("textCase", RunCase, enumName(s0.textCase, kCase));
+    put("link", RunLink, s0.link);
+}
+
+QVariantList Editor::fontAxes(const QString& family, int weight, bool italic) const
+{
+    QVariantList out;
+    for (const text::Axis& a : text::axes(family, weight, italic))
+        out << QVariantMap{{QStringLiteral("tag"), a.tag}, {QStringLiteral("min"), a.min}, {QStringLiteral("max"), a.max},
+            {QStringLiteral("default"), a.def}};
+    return out;
+}
+
+QStringList Editor::missingFonts() const
+{
+    QSet<QString> used;
+    m_doc->walk(m_doc->root(), [&](const Node& n) {
+        if (n.type() == NodeType::Text) {
+            used.insert(n.p.textStyle.family);
+            for (const TextRun& r : n.p.textRuns)
+                if (r.mask & RunFamily)
+                    used.insert(r.family);
+        }
+        return true;
+    });
+    for (const Style& st : m_doc->library().styles)
+        if (st.type == StyleType::Text)
+            used.insert(st.text.family);
+    QStringList out;
+    for (const QString& f : used)
+        if (!text::hasFamily(f))
+            out << f;
+    out.sort();
+    return out;
+}
+
+void Editor::replaceFont(const QString& from, const QString& to)
+{
+    if (from == to || to.isEmpty())
+        return;
+    std::vector<NodeId> ids;
+    m_doc->walk(m_doc->root(), [&](const Node& n) {
+        if (n.type() == NodeType::Text)
+            ids.push_back(n.id);
+        return true;
+    });
+    m_doc->breakMerge();
+    m_doc->begin(tr("Replace font"));
+    for (NodeId id : ids) {
+        Props p = m_doc->at(id).p;
+        if (p.textStyle.family == from)
+            p.textStyle.family = to;
+        for (TextRun& r : p.textRuns)
+            if ((r.mask & RunFamily) && r.family == from)
+                r.family = to;
+        if (!(p == m_doc->at(id).p))
+            m_doc->edit(id) = p;
+    }
+    bool styles = false;
+    for (const Style& st : m_doc->library().styles)
+        styles |= st.type == StyleType::Text && st.text.family == from;
+    if (styles)
+        for (Style& st : m_doc->editLibrary().styles)
+            if (st.type == StyleType::Text && st.text.family == from)
+                st.text.family = to;
+    m_doc->commit();
 }
 
 } // namespace drav

@@ -1,6 +1,7 @@
 #include "Document.h"
 
 #include "Layout.h"
+#include "Text.h"
 #include "Variables.h"
 
 #include <QCryptographicHash>
@@ -743,8 +744,10 @@ void Document::markOverrides()
         if (!n || !n->attached)
             continue;
         // A layer linked to a component property: a direct edit sets the property's value
-        // (on the owning instance, or the default when editing the main component).
-        for (auto it = n->p.propRefs.constBegin(); it != n->p.propRefs.constEnd(); ++it) {
+        // (on the owning instance, or the default when editing the main component). Nodes created
+        // in this transaction (copies, pastes) carry stale values rather than edits.
+        const bool fresh = m_txn && m_txn->created.count(id);
+        for (auto it = n->p.propRefs.constBegin(); !fresh && it != n->p.propRefs.constEnd(); ++it) {
             const NodeId owner = propOwner(id, it.value());
             if (!owner)
                 continue;
@@ -937,8 +940,8 @@ void Document::computePropRefs(NodeId id, Props& next) const
         const QString v = propValue(owner, it.value());
         if (it.key() == QLatin1String("visible")) {
             next.visible = v != QLatin1String("false");
-        } else if (it.key() == QLatin1String("characters") && next.type == NodeType::Text) {
-            next.text = v;
+        } else if (it.key() == QLatin1String("characters") && next.type == NodeType::Text && next.text != v) {
+            text::splice(next, 0, int(next.text.size()), v);
         } else if (it.key() == QLatin1String("mainComponent") && next.type == NodeType::Instance) {
             const NodeId comp = NodeId(v.toULongLong());
             if (comp && isAttached(comp) && at(comp).type() == NodeType::Component && !isAncestor(comp, id))

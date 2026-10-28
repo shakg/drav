@@ -247,6 +247,11 @@ public:
     Q_INVOKABLE void bindVariable(const QString& field, const QString& variableId); // "" unbinds
     Q_INVOKABLE void setVariableMode(const QString& collection, const QString& mode); // "" = inherit
     Q_INVOKABLE QVariant resolveVariable(const QString& id) const; // in the selection's context
+    // Variable axes of a font: [{tag, min, max, default}].
+    Q_INVOKABLE QVariantList fontAxes(const QString& family, int weight, bool italic) const;
+    // Families used in the document that are not installed, and replacing one everywhere.
+    Q_INVOKABLE QStringList missingFonts() const;
+    Q_INVOKABLE void replaceFont(const QString& from, const QString& to);
 
     // ---- component properties (EditorComponents.cpp) ----
     // type: "BOOLEAN", "TEXT", "INSTANCE_SWAP". Adds to the selected component or component set.
@@ -311,6 +316,9 @@ private:
     void drawFrameLabels(SkCanvas* c);
     std::vector<NodeId> selected() const { return m_doc->selection(); }
     void applyProp(NodeId id, const QString& key, const QVariant& value);
+    // While editing text: applies character/paragraph properties to the selected range.
+    bool applyTextRange(const QString& key, const QVariant& value);
+    void textRangeProps(QVariantMap& out) const;
     void wrapSelection(NodeType type, const QString& label);
     void addAutoLayoutTo(NodeId frame, LayoutMode forced);
     void reorder(int delta, bool toEnd);

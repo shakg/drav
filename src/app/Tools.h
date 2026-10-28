@@ -131,10 +131,11 @@ public:
     void drawOverlay(SkCanvas* c) override;
     Qt::CursorShape cursor() const override { return Qt::IBeamCursor; }
     NodeId node() const { return m_node; }
+    int selStart() const { return std::min(m_anchor, m_caret); }
+    int selEnd() const { return std::max(m_anchor, m_caret); }
 
 private:
     int indexAt(SkPoint page);
-    void setText(const QString& t, int caret);
     void insert(const QString& s);
     void eraseSelection();
     bool hasSelection() const { return m_anchor != m_caret; }

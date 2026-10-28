@@ -822,25 +822,14 @@ QString TextEditTool::text() const
 
 int TextEditTool::toDisplay(int i) const
 {
-    // Paragraph spacing inserts one extra newline per paragraph break in the laid-out text.
-    const Props& p = ed.doc().at(m_node).p;
-    if (p.textStyle.paragraphSpacing <= 0)
-        return i;
-    return i + int(p.text.left(i).count(QLatin1Char('\n')));
+    // List markers and paragraph spacing make the laid-out string differ from the characters.
+    const auto map = text::displayMap(ed.doc().at(m_node).p);
+    return map[std::clamp(i, 0, int(map.size()) - 1)];
 }
 
 int TextEditTool::fromDisplay(int d) const
 {
-    const Props& p = ed.doc().at(m_node).p;
-    if (p.textStyle.paragraphSpacing <= 0)
-        return std::clamp(d, 0, int(p.text.size()));
-    int disp = 0;
-    for (int i = 0; i < p.text.size(); ++i) {
-        if (disp >= d)
-            return i;
-        disp += p.text[i] == QLatin1Char('\n') ? 2 : 1;
-    }
-    return int(p.text.size());
+    return text::fromDisplay(text::displayMap(ed.doc().at(m_node).p), d);
 }
 
 void TextEditTool::begin(NodeId id, SkPoint pagePos, bool selectAll, bool created)
@@ -956,21 +945,14 @@ SkRect TextEditTool::caretRect(int index)
     return SkRect::MakeXYWH(alignX(0), y, 1, lineH);
 }
 
-void TextEditTool::setText(const QString& t, int caret)
-{
-    doc().begin(QObject::tr("Edit text"));
-    doc().setMergeKey(QStringLiteral("text:%1").arg(m_node));
-    doc().edit(m_node).text = t;
-    doc().commit();
-    m_caret = m_anchor = std::clamp(caret, 0, int(t.size()));
-}
-
 void TextEditTool::insert(const QString& s)
 {
-    QString t = text();
-    int a = std::min(m_anchor, m_caret), b = std::max(m_anchor, m_caret);
-    t.replace(a, b - a, s);
-    setText(t, a + int(s.size()));
+    const int a = selStart(), b = selEnd();
+    doc().begin(QObject::tr("Edit text"));
+    doc().setMergeKey(QStringLiteral("text:%1").arg(m_node));
+    text::splice(doc().edit(m_node), a, b - a, s);
+    doc().commit();
+    m_caret = m_anchor = std::clamp(a + int(s.size()), 0, int(text().size()));
 }
 
 void TextEditTool::eraseSelection()
@@ -1070,13 +1052,41 @@ bool TextEditTool::key(QKeyEvent* e)
         }
         return true;
     case Qt::Key_Return:
-    case Qt::Key_Enter:
+    case Qt::Key_Enter: {
         if (ctrl) {
             ed.setTool(QStringLiteral("select"));
             return true;
         }
+        // Enter on an empty list item ends the list.
+        const Props& p = doc().at(m_node).p;
+        const int para = text::paragraphRange(t, m_caret, m_caret).first;
+        const bool emptyLine = (m_caret == 0 || t[m_caret - 1] == QLatin1Char('\n')) && (m_caret == n || t[m_caret] == QLatin1Char('\n'));
+        if (!hasSelection() && emptyLine && para < int(p.paragraphs.size()) && p.paragraphs[para].list != ListType::None) {
+            doc().begin(QObject::tr("End list"));
+            text::setParagraphs(doc().edit(m_node), para, para, ParagraphAttr());
+            doc().commit();
+            return true;
+        }
         insert(QStringLiteral("\n"));
         return true;
+    }
+    case Qt::Key_Tab:
+    case Qt::Key_Backtab: {
+        // Indent / outdent list items.
+        const Props& p = doc().at(m_node).p;
+        auto [first, last] = text::paragraphRange(t, selStart(), selEnd());
+        if (first >= int(p.paragraphs.size()) || p.paragraphs[first].list == ListType::None) {
+            insert(QStringLiteral("    "));
+            return true;
+        }
+        doc().begin(QObject::tr("Indent"));
+        Props& ep = doc().edit(m_node);
+        for (int i = first; i <= last && i < int(ep.paragraphs.size()); ++i)
+            if (ep.paragraphs[i].list != ListType::None)
+                ep.paragraphs[i].indent = std::clamp(ep.paragraphs[i].indent + (e->key() == Qt::Key_Backtab || shift ? -1 : 1), 0, 8);
+        doc().commit();
+        return true;
+    }
     default: break;
     }
     if (ctrl) {
@@ -1104,16 +1114,19 @@ bool TextEditTool::key(QKeyEvent* e)
             ed.undo();
             return true;
         case Qt::Key_B:
-            ed.setProp(QStringLiteral("fontWeight"), doc().at(m_node).p.textStyle.weight >= 600 ? 400 : 700);
-            return true;
         case Qt::Key_I:
-            ed.setProp(QStringLiteral("italic"), !doc().at(m_node).p.textStyle.italic);
+        case Qt::Key_U: {
+            // Toggle on the selected characters (or the whole layer) based on the first one.
+            const TextRun cur = text::styleAt(doc().at(m_node).p, selStart());
+            if (e->key() == Qt::Key_B)
+                ed.setProp(QStringLiteral("fontWeight"), cur.weight >= 600 ? 400 : 700);
+            else if (e->key() == Qt::Key_I)
+                ed.setProp(QStringLiteral("italic"), !cur.italic);
+            else
+                ed.setProp(QStringLiteral("decoration"),
+                    cur.decoration == TextDecoration::Underline ? QStringLiteral("NONE") : QStringLiteral("UNDERLINE"));
             return true;
-        case Qt::Key_U:
-            ed.setProp(QStringLiteral("decoration"),
-                doc().at(m_node).p.textStyle.decoration == TextDecoration::Underline ? QStringLiteral("NONE")
-                                                                                     : QStringLiteral("UNDERLINE"));
-            return true;
+        }
         default: return true; // swallow other shortcuts while typing
         }
     }

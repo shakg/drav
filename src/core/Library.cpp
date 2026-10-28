@@ -49,6 +49,8 @@ VarType varTypeFromName(const QString& s)
 void applyTypography(TextStyle& dst, const TextStyle& src)
 {
     dst.family = src.family;
+    dst.features = src.features;
+    dst.axes = src.axes;
     dst.weight = src.weight;
     dst.italic = src.italic;
     dst.size = src.size;

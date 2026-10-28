@@ -264,6 +264,8 @@ void Editor::mouseMove(const InputEvent& e)
 void Editor::mouseRelease(const InputEvent& e)
 {
     m_tool->release(e);
+    if (textEditing())
+        emit propsChanged(); // the character selection drives the text inspector
     emit cursorChanged();
     requestUpdate();
 }
@@ -303,8 +305,11 @@ bool Editor::keyRelease(QKeyEvent* e)
 
 bool Editor::keyPress(QKeyEvent* e)
 {
-    if (m_tool->key(e))
+    if (m_tool->key(e)) {
+        if (textEditing())
+            emit propsChanged();
         return true;
+    }
     if (textEditing())
         return false;
     const auto mods = e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier | Qt::MetaModifier);

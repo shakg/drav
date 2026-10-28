@@ -74,6 +74,8 @@ struct Props {
 
     QString text;
     TextStyle textStyle;
+    std::vector<TextRun> textRuns;        // sorted, non-overlapping character overrides
+    std::vector<ParagraphAttr> paragraphs; // per paragraph (split at '\n'); missing = defaults
 
     BooleanOpType boolOp = BooleanOpType::Union;
 

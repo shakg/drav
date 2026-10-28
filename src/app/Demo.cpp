@@ -1,5 +1,7 @@
 #include "Editor.h"
 
+#include "core/Text.h"
+
 namespace drav {
 
 namespace {
@@ -9,7 +11,7 @@ SkColor4f hex(unsigned rgb, float a = 1)
     return {((rgb >> 16) & 0xff) / 255.f, ((rgb >> 8) & 0xff) / 255.f, (rgb & 0xff) / 255.f, a};
 }
 
-Props text(const QString& s, float size, int weight, SkColor4f color)
+Props textProps(const QString& s, float size, int weight, SkColor4f color)
 {
     Props p;
     p.type = NodeType::Text;
@@ -119,7 +121,7 @@ void Editor::loadDemo()
         b.layout.counterAlign = LayoutAlign::Center;
         b.corners = {8, 8, 8, 8};
         NodeId id = d.create(b, page);
-        d.create(text(QStringLiteral("Get started"), 14, 600, fg), id);
+        d.create(textProps(QStringLiteral("Get started"), 14, 600, fg), id);
         return id;
     };
     NodeId primary = makeButton(QStringLiteral("Variant=Primary"), hex(0x0D99FF), SkColors::kWhite);
@@ -174,11 +176,11 @@ void Editor::loadDemo()
     hero.fills = {grad};
     d.create(hero, cardId);
 
-    Props title = text(QStringLiteral("Offline vector design"), 22, 700, hex(0x1E1E1E));
+    Props title = textProps(QStringLiteral("Offline vector design"), 22, 700, hex(0x1E1E1E));
     title.textStyleId = headingId;
     title.fills = {bound(hex(0x1E1E1E), ink)};
     d.create(title, cardId);
-    Props body = text(QStringLiteral("Auto layout, components, variants, boolean operations, "
+    Props body = textProps(QStringLiteral("Auto layout, components, variants, boolean operations, "
                                      "effects and a pen tool. Everything stays on your machine."),
         14, 400, hex(0x5E5E5E));
     body.textStyle.autoResize = TextAutoResize::Height;
@@ -305,6 +307,26 @@ void Editor::loadDemo()
         d.create(sw, gridId);
     }
     d.setPosition(gridId, 420, 370);
+
+    // ---- Rich text: lists and per-character styles ----
+    Props notes = textProps(QStringLiteral("New in this build\nStyles and variables\nComponent properties\nRich text with lists"), 14, 400,
+        hex(0xE6E6E6));
+    notes.name = QStringLiteral("Notes");
+    {
+        TextRun head;
+        head.weight = 700;
+        head.size = 18;
+        text::styleRange(notes, 0, 17, RunWeight | RunSize, head);
+        TextRun accent;
+        accent.fill = hex(0x0D99FF);
+        text::styleRange(notes, 18, 24, RunFill, accent);
+        ParagraphAttr bullet;
+        bullet.list = ListType::Bullet;
+        text::setParagraphs(notes, 1, 3, bullet);
+        notes.textStyle.paragraphSpacing = 6;
+    }
+    NodeId notesId = d.create(notes, page);
+    d.setPosition(notesId, 800, 0);
 
     d.commit();
     d.markSaved();
