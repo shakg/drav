@@ -1,4 +1,5 @@
 #include "core/Document.h"
+#include "core/FigImport.h"
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
@@ -894,6 +895,85 @@ private slots:
         Document d2;
         QVERIFY(io::load(d2, io::save(d)));
         QCOMPARE(d2.at(id).p.vector, d.at(id).p.vector);
+    }
+
+    void figImport()
+    {
+        QFile f(QStringLiteral(DRAV_TEST_DATA "/sample.fig"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        Document d;
+        d.begin("import");
+        fig::Result res;
+        QString err;
+        QVERIFY2(fig::import(d, f.readAll(), &res, &err), qPrintable(err));
+        d.commit();
+        QCOMPARE(res.pages.size(), size_t(1)); // the internal canvas is skipped
+        QVERIFY(res.warnings.join(" ").contains("STICKY"));
+        const NodeId page = res.pages[0];
+        QCOMPARE(d.at(page).p.name, QStringLiteral("Page 1"));
+        auto byName = [&](const QString& name) {
+            NodeId found = kNoNode;
+            d.walk(page, [&](const Node& n) {
+                if (!found && n.p.name == name && !d.isInsideInstance(n.id))
+                    found = n.id;
+                return !found;
+            });
+            return found;
+        };
+        QCOMPARE(d.library().styles.size(), size_t(1));
+        const QString brand = d.library().styles[0].id;
+
+        const Node& card = d.at(byName("Card"));
+        QCOMPARE(card.type(), NodeType::Frame);
+        QCOMPARE(card.p.layout.mode, LayoutMode::Vertical);
+        QCOMPARE(card.p.layout.spacing, 8.f);
+        QCOMPARE(card.p.layout.padL, 16.f);
+        QCOMPARE(card.p.layoutChild.sizingV, LayoutSizing::Hug);
+        QCOMPARE(card.p.corners.tl, 8.f);
+        QCOMPARE(card.p.effects.size(), size_t(1));
+        QCOMPARE(card.p.transform.getTranslateX(), 10.f);
+
+        const Node& title = d.at(byName("Title"));
+        QCOMPARE(title.p.text, QStringLiteral("Hello Figma"));
+        QCOMPARE(title.p.textStyle.weight, 700);
+        QCOMPARE(title.p.textStyle.size, 20.f);
+        QCOMPARE(text::styleAt(title.p, 8).fill, (SkColor4f{1, 0, 0, 1}));
+        QCOMPARE(text::styleAt(title.p, 2).fill, (SkColor4f{0, 0, 0, 1}));
+
+        QCOMPARE(d.at(byName("Styled")).p.fillStyle, brand);
+
+        const NodeId button = byName("Button");
+        QCOMPARE(d.at(button).type(), NodeType::Component);
+        QCOMPARE(d.at(button).p.componentProps.size(), size_t(1));
+        NodeId inst = kNoNode;
+        d.walk(page, [&](const Node& n) {
+            if (n.type() == NodeType::Instance && !inst)
+                inst = n.id;
+            return true;
+        });
+        QVERIFY(inst);
+        QCOMPARE(d.at(inst).p.componentId, button);
+        QCOMPARE(d.at(inst).p.width, 160.f);
+        QCOMPARE(d.at(inst).children.size(), size_t(2));
+        QCOMPARE(d.at(d.at(inst).children[0]).p.text, QStringLiteral("Go"));
+        QCOMPARE(d.at(d.at(inst).children[1]).p.fills.at(0).color, (SkColor4f{1, 0, 0, 1}));
+        QCOMPARE(d.at(d.at(button).children[1]).p.fills.at(0).color, (SkColor4f{0, 0, 0, 1}));
+
+        const Node& tri = d.at(byName("Triangle"));
+        QVERIFY(tri.p.vector.isNetwork());
+        QCOMPARE(tri.p.vector.vertices.size(), size_t(3));
+        QCOMPARE(tri.p.vector.vertices[2].p, (SkPoint{50, 100}));
+        QCOMPARE(tri.p.vector.regions.size(), size_t(1));
+
+        const Node& group = d.at(byName("Group"));
+        QCOMPARE(group.type(), NodeType::Group);
+        const Node& ring = d.at(group.children.at(0));
+        QVERIFY(std::abs(ring.p.arcSweep - 180) < 0.01f);
+        QCOMPARE(ring.p.arcInner, 0.5f);
+
+        const Paint& photo = d.at(byName("Photo")).p.fills.at(0);
+        QCOMPARE(photo.type, PaintType::Image);
+        QVERIFY(d.images().contains(photo.imageHash));
     }
 
     void smoothRectGeometry()

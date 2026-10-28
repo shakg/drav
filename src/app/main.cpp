@@ -110,8 +110,9 @@ int main(int argc, char* argv[])
     }
     if (cli.isSet(shot) && shotWindow) {
         const QString path = cli.value(shot);
-        QTimer::singleShot(2000, &app, [shotWindow, path] {
+        QTimer::singleShot(2000, &app, [window, shotWindow, path] {
             shotWindow->grabWindow().save(path);
+            window->setProperty("forceClose", true); // no "save changes?" prompt in screenshot runs
             QCoreApplication::quit();
         });
     }

@@ -4,6 +4,7 @@
 #include "SvgImport.h"
 #include "Tools.h"
 
+#include "core/FigImport.h"
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
@@ -1280,6 +1281,28 @@ bool Editor::importFile(const QUrl& url)
         return false;
     const QByteArray data = f.readAll();
     const QString ext = QFileInfo(path).suffix().toLower();
+    if (ext == QLatin1String("fig")) {
+        // Figma file: its pages are added to this document.
+        const NodeId emptyPage = m_doc->pages().size() == 1 && m_doc->at(m_doc->currentPage()).children.empty()
+            ? m_doc->currentPage()
+            : kNoNode;
+        m_doc->begin(tr("Import Figma file"));
+        fig::Result res;
+        QString err;
+        if (!fig::import(*m_doc, data, &res, &err) || res.pages.empty()) {
+            m_doc->cancel();
+            setStatus(err.isEmpty() ? tr("No pages in %1").arg(QFileInfo(path).fileName()) : err);
+            return false;
+        }
+        if (emptyPage)
+            m_doc->remove(emptyPage);
+        m_doc->setCurrentPage(res.pages.front());
+        m_doc->commit();
+        zoomToFit();
+        setStatus(res.warnings.isEmpty() ? tr("Imported %1 layers").arg(res.layers)
+                                         : tr("Imported %1 layers; %2").arg(res.layers).arg(res.warnings.join(QStringLiteral("; "))));
+        return true;
+    }
     SkPoint center = toPage(QPointF(m_viewport.width() / 2, m_viewport.height() / 2));
     m_doc->begin(tr("Import"));
     std::vector<NodeId> created;

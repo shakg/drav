@@ -800,6 +800,16 @@ private slots:
         QCOMPARE(ed->toolName(), QStringLiteral("select"));
     }
 
+    void openFigFile()
+    {
+        QVERIFY(ed->open(QUrl::fromLocalFile(QStringLiteral(DRAV_TEST_DATA "/sample.fig"))));
+        QCOMPARE(ed->pages().size(), 1);
+        QCOMPARE(ed->pages()[0].toMap()["name"].toString(), QStringLiteral("Page 1"));
+        QVERIFY(!doc().at(doc().currentPage()).children.empty());
+        ed->undo(); // one step: back to the empty document
+        QCOMPARE(ed->pages()[0].toMap()["name"].toString(), QStringLiteral("Page 1"));
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

@@ -312,7 +312,7 @@ ApplicationWindow {
     FileDialog {
         id: openDialog
         title: qsTr("Open")
-        nameFilters: [qsTr("drav files (*.drav)"), qsTr("SVG (*.svg)"), qsTr("All files (*)")]
+        nameFilters: [qsTr("drav files (*.drav)"), qsTr("Figma files (*.fig)"), qsTr("SVG (*.svg)"), qsTr("All files (*)")]
         onAccepted: editor.open(selectedFile)
     }
     FileDialog {
@@ -326,7 +326,7 @@ ApplicationWindow {
     FileDialog {
         id: importDialog
         title: qsTr("Place image or SVG")
-        nameFilters: [qsTr("Images and SVG (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)")]
+        nameFilters: [qsTr("Images, SVG and Figma files (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.fig)")]
         onAccepted: editor.importFile(selectedFile)
     }
     FileDialog {
