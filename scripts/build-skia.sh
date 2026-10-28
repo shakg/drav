@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the static Skia (Ganesh/GL + paragraph + SVG + PDF) that drav links against.
-# Uses system/conda libraries for freetype, harfbuzz, ICU, libpng, libjpeg, libwebp, expat, zlib.
+# Uses system (/usr) or conda ($CONDA_PREFIX) libraries for freetype, harfbuzz, ICU, libpng, libjpeg, libwebp, expat, zlib.
 #
 #   scripts/build-skia.sh [skia-dir]        (default: third_party/skia)
 #
@@ -16,7 +16,10 @@ if [ ! -d "$SKIA_DIR/.git" ]; then
 fi
 cd "$SKIA_DIR"
 
-command -v gn >/dev/null || { echo "gn not found (conda: 'gn' package; or Skia's bin/fetch-gn)"; exit 1; }
+if ! command -v gn >/dev/null; then
+    python3 bin/fetch-gn
+    PATH="$PWD/bin:$PATH"
+fi
 command -v ninja >/dev/null || { echo "ninja not found"; exit 1; }
 
 CC="${CC:-cc}"
@@ -26,6 +29,14 @@ for f in $(pkg-config --cflags freetype2 harfbuzz icu-uc fontconfig); do
     [ -d "${f#-I}" ] && GN_CFLAGS+="\"$f\", "
 done
 
+# -I/usr/include breaks GCC's #include_next, so only add the prefix when it is not the system one.
+PREFIX_CFLAGS=""
+PREFIX_LDFLAGS=""
+if [ "$PREFIX" != "/usr" ]; then
+    PREFIX_CFLAGS="\"-I$PREFIX/include\", "
+    PREFIX_LDFLAGS="\"-L$PREFIX/lib\""
+fi
+
 mkdir -p out/static
 cat > out/static/args.gn <<ARGS
 is_official_build = true
@@ -33,8 +44,8 @@ is_debug = false
 is_component_build = false
 cc = "$CC"
 cxx = "$CXX"
-extra_cflags = [ "-I$PREFIX/include", ${GN_CFLAGS}"-Wno-psabi" ]
-extra_ldflags = [ "-L$PREFIX/lib" ]
+extra_cflags = [ ${PREFIX_CFLAGS}${GN_CFLAGS}"-Wno-psabi" ]
+extra_ldflags = [ ${PREFIX_LDFLAGS} ]
 skia_use_gl = true
 skia_use_egl = false
 skia_use_x11 = false

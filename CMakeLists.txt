@@ -12,6 +12,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(DRAV_BUILD_TESTS "Build unit tests" ON)
+option(DRAV_PACKAGE "Bundle Qt into the install tree and configure CPack for a .deb" OFF)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 OpenGL Test)
 include(cmake/Skia.cmake)
@@ -21,6 +22,7 @@ qt_standard_project_setup(REQUIRES 6.8)
 add_subdirectory(src/core)
 add_subdirectory(src/render)
 add_subdirectory(src/app)
+include(cmake/Packaging.cmake)
 
 if(DRAV_BUILD_TESTS)
     enable_testing()

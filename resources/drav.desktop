@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=drav
+GenericName=Vector Design
+Comment=Offline vector design tool
+Exec=drav %f
+Terminal=false
+Categories=Graphics;VectorGraphics;
