@@ -7,6 +7,10 @@ Section {
     id: root
     title: qsTr("Effects")
     showAdd: true
+    actions: [
+        IconButton { iconName: "style"; iconSize: 14; tip: qsTr("Effect styles"); onClicked: { fxStyles.current = editor.props.effectStyle || ""; fxStyles.open() }
+            StylePicker { id: fxStyles; slot: "effects"; x: -width - 20 } }
+    ]
     property var effects: editor.props.effects
     readonly property bool mixed: effects === undefined || effects === null
     function copyList() { return (effects || []).map(e => Object.assign({}, e)) }
@@ -16,6 +20,7 @@ Section {
         l.push({ type: "DROP_SHADOW", visible: true, color: Qt.rgba(0, 0, 0, 0.25), x: 0, y: 4, radius: 4, spread: 0, behind: false })
         update(l, false)
     }
+    StyleChip { slot: "effects"; styleId: editor.props.effectStyle || "" }
     Text {
         visible: root.mixed
         text: qsTr("Click + to replace mixed content")
@@ -76,7 +81,20 @@ Section {
                             onClosed: editor.endLive()
                         }
                     }
-                    Text { text: qsTr("Color"); color: Theme.textDim; font.pixelSize: Theme.fontSize; Layout.fillWidth: true }
+                    Text {
+                        Layout.fillWidth: true
+                        readonly property var v: fx.modelData.colorVar ? editor.library.variables.find(x => x.id === fx.modelData.colorVar) : null
+                        text: v ? v.name : qsTr("Color")
+                        color: v ? Theme.text : Theme.textDim
+                        font.pixelSize: Theme.fontSize
+                    }
+                    IconButton {
+                        iconName: "variable"; iconSize: 12
+                        checked: !!fx.modelData.colorVar
+                        tip: qsTr("Apply color variable")
+                        onClicked: { fxVar.current = fx.modelData.colorVar || ""; fxVar.open() }
+                        VariablePicker { id: fxVar; x: -width - 20; varType: "COLOR"; onPicked: id => editor.bindVariable("effects/" + fx.index, id) }
+                    }
                     CheckBox {
                         visible: fx.modelData.type === "DROP_SHADOW"
                         text: qsTr("Behind transparent")

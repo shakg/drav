@@ -26,7 +26,11 @@ enum OverrideBit : std::uint32_t {
     OvBlend = 1u << 12,
     OvComponent = 1u << 13, // nested instance swapped
     OvVariantProps = 1u << 14,
+    OvBindings = 1u << 15,
+    OvPropValues = 1u << 16, // nested instance: component property values
 };
+
+struct Library;
 
 // All per-node data except tree links. Copyable so undo can snapshot it.
 struct Props {
@@ -70,6 +74,10 @@ struct Props {
 
     QString text;
     TextStyle textStyle;
+    NodeId textPath = kNoNode; // text set along this sibling shape's outline
+    float textPathOffset = 0;  // start position along the path, 0..1
+    std::vector<TextRun> textRuns;        // sorted, non-overlapping character overrides
+    std::vector<ParagraphAttr> paragraphs; // per paragraph (split at '\n'); missing = defaults
 
     BooleanOpType boolOp = BooleanOpType::Union;
 
@@ -79,10 +87,23 @@ struct Props {
     std::uint32_t overrides = 0;
     QString description; // component docs
     QMap<QString, QString> variantProps; // instance: chosen values; component: own values (parsed from name)
+    std::vector<ComponentProp> componentProps; // Component / ComponentSet: property definitions
+    QMap<QString, QString> propRefs;   // layer in a component: field ("visible", "characters", "mainComponent") -> prop id
+    QMap<QString, QString> propValues; // Instance: prop id -> value (missing = default)
 
     std::vector<ExportSetting> exports;
 
     SkColor4f pageBackground = {0.118f, 0.118f, 0.118f, 1.f};
+    std::vector<Guide> guides; // Page
+    QString libraryPage; // Page: holds components imported from this linked library (hidden)
+    QString remote;      // node imported from a linked library: "<library id>:<source node id>"
+
+    // Styles and variables. Style ids travel with the property group they drive.
+    QString fillStyle, strokeStyle, textStyleId, effectStyle, gridStyle;
+    QMap<QString, QString> bindings;      // bindable field key -> variable id (see Variables.h)
+    QMap<QString, QString> variableModes; // collection id -> mode id, inherited by descendants
+    std::shared_ptr<const Library> library; // Document node only; replaced (never mutated) on edit
+    ColorProfile colorProfile = ColorProfile::SRGB; // Document node only
 
     bool operator==(const Props&) const = default;
 };

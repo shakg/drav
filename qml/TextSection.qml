@@ -7,6 +7,30 @@ Section {
     id: root
     title: qsTr("Text")
     readonly property var p: editor.props
+    actions: [
+        IconButton {
+            iconName: "variable"; iconSize: 13
+            checked: !!root.p.bindings && !!root.p.bindings.characters
+            tip: qsTr("Bind text content to a string variable")
+            onClicked: { textVar.current = root.p.bindings ? (root.p.bindings.characters || "") : ""; textVar.open() }
+            VariablePicker { id: textVar; x: -width - 20; varType: "STRING"; onPicked: id => editor.bindVariable("characters", id) }
+        },
+        IconButton {
+            iconName: "style"; iconSize: 14
+            tip: qsTr("Text styles")
+            onClicked: { textStyles.current = root.p.textStyleId || ""; textStyles.open() }
+            StylePicker { id: textStyles; slot: "text"; x: -width - 20 }
+        }
+    ]
+    StyleChip { slot: "text"; styleId: root.p.textStyleId || "" }
+    RowLayout {
+        visible: !!root.p.textPath
+        Layout.fillWidth: true
+        Icon { name: "textPath"; size: 14; color: Theme.textDim }
+        Text { text: qsTr("On path"); color: Theme.textDim; font.pixelSize: Theme.fontSize }
+        NumberField { Layout.fillWidth: true; label: qsTr("Start"); key: "textPathOffset"; value: root.p.textPathOffset; displayScale: 100; suffix: "%"; decimals: 0; minimum: 0; maximum: 1 }
+        IconButton { iconName: "detach"; tip: qsTr("Detach from path"); onClicked: editor.detachTextFromPath() }
+    }
     readonly property var weights: [
         { value: 100, text: "Thin" }, { value: 200, text: "Extra Light" }, { value: 300, text: "Light" },
         { value: 400, text: "Regular" }, { value: 500, text: "Medium" }, { value: 600, text: "Semi Bold" },
@@ -63,7 +87,7 @@ Section {
             model: root.weights
             onPicked: v => editor.setProp("fontWeight", v)
         }
-        NumberField { Layout.preferredWidth: 70; key: "fontSize"; value: root.p.fontSize; minimum: 1; decimals: 1 }
+        NumberField { Layout.preferredWidth: 70; key: "fontSize"; bindKey: "fontSize"; value: root.p.fontSize; minimum: 1; decimals: 1 }
     }
     GridLayout {
         Layout.fillWidth: true
@@ -73,14 +97,15 @@ Section {
         NumberField {
             Layout.fillWidth: true
             icon: "autoHeight"
+            bindKey: "lineHeight"
             value: root.p.lineHeight === 0 ? undefined : root.p.lineHeight
             emptyText: qsTr("Auto")
             suffix: root.p.lineHeightPercent ? "%" : ""
             minimum: 0
             onCommitted: v => editor.setProp("lineHeight", v)
         }
-        NumberField { Layout.fillWidth: true; icon: "autoWidth"; key: "letterSpacing"; value: root.p.letterSpacing; suffix: "%"; step: 0.5 }
-        NumberField { Layout.fillWidth: true; label: "¶"; key: "paragraphSpacing"; value: root.p.paragraphSpacing; minimum: 0 }
+        NumberField { Layout.fillWidth: true; icon: "autoWidth"; key: "letterSpacing"; bindKey: "letterSpacing"; value: root.p.letterSpacing; suffix: "%"; step: 0.5 }
+        NumberField { Layout.fillWidth: true; label: "¶"; key: "paragraphSpacing"; bindKey: "paragraphSpacing"; value: root.p.paragraphSpacing; minimum: 0 }
         Dropdown {
             Layout.fillWidth: true
             current: root.p.textCase
@@ -110,5 +135,69 @@ Section {
         IconButton { iconName: "underline"; tip: qsTr("Underline"); checked: root.p.decoration === "UNDERLINE"; onClicked: editor.setProp("decoration", root.p.decoration === "UNDERLINE" ? "NONE" : "UNDERLINE") }
         IconButton { iconName: "strike"; tip: qsTr("Strikethrough"); checked: root.p.decoration === "STRIKETHROUGH"; onClicked: editor.setProp("decoration", root.p.decoration === "STRIKETHROUGH" ? "NONE" : "STRIKETHROUGH") }
         IconButton { iconName: "italic"; tip: qsTr("Italic"); checked: root.p.italic === true; onClicked: editor.setProp("italic", !root.p.italic) }
+    }
+    RowLayout {
+        spacing: 2
+        IconButton { iconName: "listBullet"; tip: qsTr("Bulleted list"); checked: root.p.listType === "BULLET"
+            onClicked: editor.setProp("listType", root.p.listType === "BULLET" ? "NONE" : "BULLET") }
+        IconButton { iconName: "listOrdered"; tip: qsTr("Numbered list"); checked: root.p.listType === "ORDERED"
+            onClicked: editor.setProp("listType", root.p.listType === "ORDERED" ? "NONE" : "ORDERED") }
+        Item { Layout.fillWidth: true }
+        IconButton { iconName: "settings"; tip: qsTr("Type details"); checked: details.visible; onClicked: details.visible = !details.visible }
+    }
+    // Link on the selected characters (while editing text).
+    RowLayout {
+        visible: !!root.p.textRange && root.p.textRange[0] !== root.p.textRange[1]
+        Layout.fillWidth: true
+        Icon { name: "link"; size: 13; color: Theme.textDim }
+        TextBox {
+            Layout.fillWidth: true
+            placeholder: qsTr("Link URL for selected text")
+            text: root.p.link || ""
+            onAccepted: t => editor.setProp("link", t)
+        }
+    }
+    // OpenType features and variable axes.
+    ColumnLayout {
+        id: details
+        visible: false
+        Layout.fillWidth: true
+        spacing: 2
+        readonly property var feats: root.p.features || ({})
+        readonly property var known: [
+            { tag: "liga", text: qsTr("Ligatures"), on: 1 }, { tag: "calt", text: qsTr("Contextual alternates"), on: 1 },
+            { tag: "tnum", text: qsTr("Tabular numbers"), on: 0 }, { tag: "zero", text: qsTr("Slashed zero"), on: 0 },
+            { tag: "frac", text: qsTr("Fractions"), on: 0 }, { tag: "case", text: qsTr("Case-sensitive forms"), on: 0 },
+            { tag: "smcp", text: qsTr("Small caps"), on: 0 }, { tag: "ss01", text: qsTr("Stylistic set 1"), on: 0 },
+            { tag: "ss02", text: qsTr("Stylistic set 2"), on: 0 }, { tag: "cv11", text: qsTr("Character variant 11"), on: 0 }]
+        Repeater {
+            model: details.known
+            CheckBox {
+                required property var modelData
+                text: modelData.text
+                checked: details.feats[modelData.tag] !== undefined ? details.feats[modelData.tag] !== 0 : modelData.on === 1
+                // Store only values that differ from the font default.
+                onToggled: editor.setProp("fontFeature", { tag: modelData.tag, value: (checked ? 1 : 0) === modelData.on ? null : (checked ? 1 : 0) })
+                contentItem: Text { leftPadding: 22; text: parent.text; color: Theme.textDim; font.pixelSize: Theme.fontSize; verticalAlignment: Text.AlignVCenter }
+                implicitHeight: 22
+            }
+        }
+        Repeater {
+            model: details.visible && root.p.fontFamily ? editor.fontAxes(root.p.fontFamily, root.p.fontWeight || 400, root.p.italic === true).filter(a => a.tag !== "wght") : []
+            RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                Text { text: modelData.tag; color: Theme.textDim; font.pixelSize: Theme.fontSize; Layout.preferredWidth: 40 }
+                Slider {
+                    Layout.fillWidth: true
+                    from: modelData.min
+                    to: modelData.max
+                    value: root.p.axes && root.p.axes[modelData.tag] !== undefined ? root.p.axes[modelData.tag] : modelData.default
+                    onMoved: editor.setPropLive("fontAxis", { tag: modelData.tag, value: value })
+                    onPressedChanged: if (!pressed) editor.endLive()
+                }
+                Text { text: Math.round((root.p.axes && root.p.axes[modelData.tag] !== undefined ? root.p.axes[modelData.tag] : modelData.default) * 10) / 10; color: Theme.textFaint; font.pixelSize: 10 }
+            }
+        }
     }
 }

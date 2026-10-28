@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=drav
+GenericName=Vector design editor
+Comment=Offline UI and vector design
+Exec=drav %f
+Icon=drav
+Terminal=false
+Categories=Graphics;VectorGraphics;Qt;
+MimeType=application/x-drav;

@@ -1,6 +1,8 @@
 #include "Editor.h"
 
 #include <QCommandLineParser>
+#include <QFileOpenEvent>
+#include <QIcon>
 #include <QGuiApplication>
 #include <QQmlAbstractUrlInterceptor>
 #include <QQmlApplicationEngine>
@@ -32,6 +34,26 @@ public:
     }
 };
 
+// macOS delivers documents opened from Finder (or dropped on the Dock icon) as events.
+class FileOpenFilter : public QObject {
+public:
+    explicit FileOpenFilter(drav::Editor& ed)
+        : m_ed(ed)
+    {
+    }
+    bool eventFilter(QObject* o, QEvent* e) override
+    {
+        if (e->type() == QEvent::FileOpen) {
+            m_ed.open(static_cast<QFileOpenEvent*>(e)->url());
+            return true;
+        }
+        return QObject::eventFilter(o, e);
+    }
+
+private:
+    drav::Editor& m_ed;
+};
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -47,6 +69,8 @@ int main(int argc, char* argv[])
     QGuiApplication::setApplicationName(QStringLiteral("drav"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("drav"));
     QGuiApplication::setOrganizationName(QStringLiteral("drav"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("drav"));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/drav.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QCommandLineParser cli;
@@ -57,10 +81,14 @@ int main(int argc, char* argv[])
     QCommandLineOption shot(QStringLiteral("screenshot"), QStringLiteral("Save a window screenshot and quit."), QStringLiteral("png"));
     QCommandLineOption bench(QStringLiteral("bench"), QStringLiteral("Pan/zoom benchmark for N seconds, print FPS, quit."), QStringLiteral("seconds"));
     QCommandLineOption select(QStringLiteral("select"), QStringLiteral("Select a layer by name (\"Name#2\" picks the second match)."), QStringLiteral("name"));
-    cli.addOptions({demo, shot, bench, select});
+    QCommandLineOption show(QStringLiteral("show"), QStringLiteral("Open a named window or popup (for screenshots)."), QStringLiteral("objectName"));
+    QCommandLineOption script(QStringLiteral("script"), QStringLiteral("Run a script file (see docs/scripting.md) after opening."), QStringLiteral("js"));
+    cli.addOptions({demo, shot, bench, select, show, script});
     cli.process(app);
 
     drav::Editor editor;
+    FileOpenFilter fileOpen(editor);
+    app.installEventFilter(&fileOpen);
     QQmlApplicationEngine engine;
     engine.addUrlInterceptor(new OfflineInterceptor);
     engine.rootContext()->setContextProperty(QStringLiteral("editor"), &editor);
@@ -94,13 +122,29 @@ int main(int argc, char* argv[])
             if (found)
                 editor.select({found});
         }
+        if (cli.isSet(script)) {
+            const QString out = editor.runPlugin(cli.value(script));
+            if (!out.isEmpty())
+                qInfo().noquote() << out;
+        }
     });
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-    if (cli.isSet(shot) && window) {
+    QQuickWindow* shotWindow = window;
+    if (cli.isSet(show) && window) {
+        QObject* target = window->findChild<QObject*>(cli.value(show));
+        if (auto* w = qobject_cast<QQuickWindow*>(target)) {
+            QTimer::singleShot(500, w, [w] { w->show(); });
+            shotWindow = w;
+        } else if (target) {
+            QTimer::singleShot(500, target, [target] { QMetaObject::invokeMethod(target, "open"); });
+        }
+    }
+    if (cli.isSet(shot) && shotWindow) {
         const QString path = cli.value(shot);
-        QTimer::singleShot(2000, &app, [window, path] {
-            window->grabWindow().save(path);
+        QTimer::singleShot(2000, &app, [window, shotWindow, path] {
+            shotWindow->grabWindow().save(path);
+            window->setProperty("forceClose", true); // no "save changes?" prompt in screenshot runs
             QCoreApplication::quit();
         });
     }

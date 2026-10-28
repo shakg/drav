@@ -1,6 +1,7 @@
 #include "Serializer.h"
 
 #include "Document.h"
+#include "Library.h"
 
 #include <QCborArray>
 #include <QCborValue>
@@ -78,7 +79,15 @@ QCborMap paintToCbor(const Paint& p)
         m[K("image")] = p.imageHash;
         m[K("scaleMode")] = int(p.scaleMode);
         m[K("imageScale")] = p.imageScale;
+        if (p.hasAdjustments())
+            m[K("adjust")] = QCborArray{p.exposure, p.contrast, p.saturation, p.temperature, p.tint, p.highlights, p.shadows};
+        if (p.crop != SkRect::MakeWH(1, 1))
+            m[K("crop")] = QCborArray{p.crop.left(), p.crop.top(), p.crop.width(), p.crop.height()};
     }
+    if (!p.colorVar.isEmpty())
+        m[K("colorVar")] = p.colorVar;
+    if (p.strokeWeight > 0)
+        m[K("strokeWeight")] = p.strokeWeight;
     return m;
 }
 Paint paintFromCbor(const QCborMap& m)
@@ -102,6 +111,19 @@ Paint paintFromCbor(const QCborMap& m)
     p.imageHash = str(m, "image");
     p.scaleMode = ImageScaleMode(integer(m, "scaleMode"));
     p.imageScale = num(m, "imageScale", 1);
+    if (m.contains(K("adjust"))) {
+        const QCborArray a = m.value(K("adjust")).toArray();
+        float* f[] = {&p.exposure, &p.contrast, &p.saturation, &p.temperature, &p.tint, &p.highlights, &p.shadows};
+        for (int i = 0; i < 7 && i < a.size(); ++i)
+            *f[i] = float(a.at(i).toDouble());
+    }
+    if (m.contains(K("crop"))) {
+        const QCborArray a = m.value(K("crop")).toArray();
+        if (a.size() == 4)
+            p.crop = SkRect::MakeXYWH(a[0].toDouble(), a[1].toDouble(), a[2].toDouble(), a[3].toDouble());
+    }
+    p.colorVar = str(m, "colorVar");
+    p.strokeWeight = num(m, "strokeWeight");
     return p;
 }
 QCborArray paints(const std::vector<Paint>& v)
@@ -131,6 +153,24 @@ QCborMap vectorToCbor(const VectorData& v)
         cs.append(QCborMap{{K("closed"), c.closed}, {K("pts"), pts}});
     }
     m[K("contours")] = cs;
+    if (v.isNetwork()) {
+        QCborArray verts, segs, regions;
+        for (const NetVertex& x : v.vertices)
+            verts.append(QCborArray{x.p.x(), x.p.y(), int(x.mode)});
+        for (const NetSegment& sg : v.segments)
+            segs.append(QCborArray{sg.a, sg.b, sg.ca.x(), sg.ca.y(), sg.cb.x(), sg.cb.y()});
+        for (const NetRegion& r : v.regions) {
+            QCborArray loops;
+            for (const auto& loop : r.loops) {
+                QCborArray l;
+                for (int i : loop)
+                    l.append(i);
+                loops.append(l);
+            }
+            regions.append(loops);
+        }
+        m[K("net")] = QCborMap{{K("vertices"), verts}, {K("segments"), segs}, {K("regions"), regions}};
+    }
     return m;
 }
 VectorData vectorFromCbor(const QCborMap& m)
@@ -154,7 +194,162 @@ VectorData vectorFromCbor(const QCborMap& m)
         }
         v.contours.push_back(c);
     }
+    if (m.contains(K("net"))) {
+        const QCborMap net = m.value(K("net")).toMap();
+        for (const QCborValue& xv : net.value(K("vertices")).toArray()) {
+            const QCborArray a = xv.toArray();
+            v.vertices.push_back({{float(a[0].toDouble()), float(a[1].toDouble())}, AnchorMode(a[2].toInteger())});
+        }
+        const int nv = int(v.vertices.size());
+        for (const QCborValue& sv : net.value(K("segments")).toArray()) {
+            const QCborArray a = sv.toArray();
+            const int sa = int(a[0].toInteger()), sb = int(a[1].toInteger());
+            if (sa < 0 || sb < 0 || sa >= nv || sb >= nv)
+                continue; // damaged file: skip rather than index out of range
+            v.segments.push_back({sa, sb, {float(a[2].toDouble()), float(a[3].toDouble())}, {float(a[4].toDouble()), float(a[5].toDouble())}});
+        }
+        const int ns = int(v.segments.size());
+        for (const QCborValue& rv : net.value(K("regions")).toArray()) {
+            NetRegion r;
+            for (const QCborValue& lv : rv.toArray()) {
+                std::vector<int> loop;
+                for (const QCborValue& i : lv.toArray())
+                    if (i.toInteger() >= 0 && i.toInteger() < ns)
+                        loop.push_back(int(i.toInteger()));
+                if (!loop.empty())
+                    r.loops.push_back(loop);
+            }
+            v.regions.push_back(r);
+        }
+    }
     return v;
+}
+
+QCborMap effectToCbor(const Effect& e)
+{
+    QCborMap m{{K("type"), int(e.type)}, {K("visible"), e.visible}, {K("color"), color(e.color)},
+        {K("offset"), point(e.offset)}, {K("radius"), e.radius}, {K("spread"), e.spread}, {K("blend"), int(e.blend)},
+        {K("behind"), e.showBehindTransparent}};
+    if (!e.colorVar.isEmpty())
+        m[K("colorVar")] = e.colorVar;
+    return m;
+}
+Effect effectFromCbor(const QCborMap& em)
+{
+    Effect e;
+    e.type = EffectType(integer(em, "type"));
+    e.visible = flag(em, "visible", true);
+    e.color = color(em.value(K("color")), e.color);
+    e.offset = point(em.value(K("offset")));
+    e.radius = num(em, "radius");
+    e.spread = num(em, "spread");
+    e.blend = BlendMode(integer(em, "blend", int(BlendMode::Normal)));
+    e.showBehindTransparent = flag(em, "behind");
+    e.colorVar = str(em, "colorVar");
+    return e;
+}
+QCborArray effects(const std::vector<Effect>& v)
+{
+    QCborArray a;
+    for (const Effect& e : v)
+        a.append(effectToCbor(e));
+    return a;
+}
+std::vector<Effect> effects(const QCborValue& v)
+{
+    std::vector<Effect> out;
+    for (const QCborValue& e : v.toArray())
+        out.push_back(effectFromCbor(e.toMap()));
+    return out;
+}
+
+QCborMap textStyleToCbor(const TextStyle& t)
+{
+    QCborMap m{{K("family"), t.family}, {K("weight"), t.weight}, {K("italic"), t.italic}, {K("size"), t.size},
+        {K("lh"), t.lineHeight}, {K("lhPct"), t.lineHeightPercent}, {K("ls"), t.letterSpacing},
+        {K("ps"), t.paragraphSpacing}, {K("ah"), int(t.alignH)}, {K("av"), int(t.alignV)},
+        {K("resize"), int(t.autoResize)}, {K("case"), int(t.textCase)}, {K("deco"), int(t.decoration)},
+        {K("maxLines"), t.maxLines}};
+    if (!t.features.isEmpty()) {
+        QCborMap f;
+        for (auto it = t.features.begin(); it != t.features.end(); ++it)
+            f[it.key()] = it.value();
+        m[K("features")] = f;
+    }
+    if (!t.axes.isEmpty()) {
+        QCborMap a;
+        for (auto it = t.axes.begin(); it != t.axes.end(); ++it)
+            a[it.key()] = it.value();
+        m[K("axes")] = a;
+    }
+    return m;
+}
+TextStyle textStyleFromCbor(const QCborMap& f)
+{
+    TextStyle t;
+    t.family = str(f, "family", t.family);
+    t.weight = integer(f, "weight", 400);
+    t.italic = flag(f, "italic");
+    t.size = num(f, "size", 16);
+    t.lineHeight = num(f, "lh");
+    t.lineHeightPercent = flag(f, "lhPct");
+    t.letterSpacing = num(f, "ls");
+    t.paragraphSpacing = num(f, "ps");
+    t.alignH = TextAlignH(integer(f, "ah"));
+    t.alignV = TextAlignV(integer(f, "av"));
+    t.autoResize = TextAutoResize(integer(f, "resize", int(TextAutoResize::WidthAndHeight)));
+    t.textCase = TextCase(integer(f, "case"));
+    t.decoration = TextDecoration(integer(f, "deco"));
+    t.maxLines = integer(f, "maxLines");
+    const QCborMap feats = f.value(K("features")).toMap();
+    for (auto it = feats.begin(); it != feats.end(); ++it)
+        t.features.insert(it.key().toString(), int(it.value().toInteger()));
+    const QCborMap axes = f.value(K("axes")).toMap();
+    for (auto it = axes.begin(); it != axes.end(); ++it)
+        t.axes.insert(it.key().toString(), float(it.value().toDouble()));
+    return t;
+}
+
+QCborArray grids(const std::vector<LayoutGrid>& v)
+{
+    QCborArray a;
+    for (const LayoutGrid& g : v)
+        a.append(QCborMap{{K("kind"), int(g.kind)}, {K("count"), g.count}, {K("size"), g.size}, {K("gutter"), g.gutter},
+            {K("margin"), g.margin}, {K("color"), color(g.color)}, {K("visible"), g.visible}});
+    return a;
+}
+std::vector<LayoutGrid> grids(const QCborValue& v)
+{
+    std::vector<LayoutGrid> out;
+    for (const QCborValue& gv : v.toArray()) {
+        QCborMap gm = gv.toMap();
+        LayoutGrid g;
+        g.kind = LayoutGrid::Kind(integer(gm, "kind"));
+        g.count = integer(gm, "count", 12);
+        g.size = num(gm, "size", 10);
+        g.gutter = num(gm, "gutter", 20);
+        g.margin = num(gm, "margin");
+        g.color = color(gm.value(K("color")), g.color);
+        g.visible = flag(gm, "visible", true);
+        out.push_back(g);
+    }
+    return out;
+}
+
+QCborMap stringMap(const QMap<QString, QString>& m)
+{
+    QCborMap c;
+    for (auto it = m.begin(); it != m.end(); ++it)
+        c[it.key()] = it.value();
+    return c;
+}
+QMap<QString, QString> stringMap(const QCborValue& v)
+{
+    QMap<QString, QString> m;
+    const QCborMap c = v.toMap();
+    for (auto it = c.begin(); it != c.end(); ++it)
+        m.insert(it.key().toString(), it.value().toString());
+    return m;
 }
 
 } // namespace
@@ -182,15 +377,17 @@ QCborMap propsToCbor(const Props& p)
         QCborArray dashes;
         for (float d : s.dashes)
             dashes.append(d);
-        m[K("stroke")] = QCborMap{{K("weight"), s.weight}, {K("align"), int(s.align)}, {K("startCap"), int(s.startCap)},
+        QCborMap sm{{K("weight"), s.weight}, {K("align"), int(s.align)}, {K("startCap"), int(s.startCap)},
             {K("endCap"), int(s.endCap)}, {K("join"), int(s.join)}, {K("miter"), s.miterLimit}, {K("dashes"), dashes}};
+        if (!s.widthProfile.empty()) {
+            QCborArray prof;
+            for (SkPoint w : s.widthProfile)
+                prof.append(point(w));
+            sm[K("profile")] = prof;
+        }
+        m[K("stroke")] = sm;
     }
-    QCborArray effects;
-    for (const Effect& e : p.effects)
-        effects.append(QCborMap{{K("type"), int(e.type)}, {K("visible"), e.visible}, {K("color"), color(e.color)},
-            {K("offset"), point(e.offset)}, {K("radius"), e.radius}, {K("spread"), e.spread}, {K("blend"), int(e.blend)},
-            {K("behind"), e.showBehindTransparent}});
-    m[K("effects")] = effects;
+    m[K("effects")] = effects(p.effects);
     m[K("corners")] = QCborArray{p.corners.tl, p.corners.tr, p.corners.br, p.corners.bl};
     if (p.cornerSmoothing) m[K("smoothing")] = p.cornerSmoothing;
     m[K("clips")] = p.clipsContent;
@@ -199,36 +396,53 @@ QCborMap propsToCbor(const Props& p)
         m[K("layout")] = QCborMap{{K("mode"), int(l.mode)}, {K("wrap"), l.wrap}, {K("spacing"), l.spacing},
             {K("cspacing"), l.counterSpacing}, {K("pad"), QCborArray{l.padL, l.padT, l.padR, l.padB}},
             {K("palign"), int(l.primaryAlign)}, {K("calign"), int(l.counterAlign)}, {K("reverseZ"), l.reverseZ},
-            {K("strokesIncluded"), l.strokesIncluded}};
+            {K("strokesIncluded"), l.strokesIncluded}, {K("gridCols"), l.gridColumns}, {K("gridRows"), l.gridRows}};
     }
     {
         const LayoutChild& c = p.layoutChild;
         m[K("lchild")] = QCborMap{{K("sh"), int(c.sizingH)}, {K("sv"), int(c.sizingV)}, {K("abs"), c.absolute},
-            {K("min"), QCborArray{c.minW, c.minH}}, {K("max"), QCborArray{c.maxW, c.maxH}}};
+            {K("min"), QCborArray{c.minW, c.minH}}, {K("max"), QCborArray{c.maxW, c.maxH}}, {K("span"), QCborArray{c.colSpan, c.rowSpan}}};
     }
-    if (!p.grids.empty()) {
-        QCborArray grids;
-        for (const LayoutGrid& g : p.grids)
-            grids.append(QCborMap{{K("kind"), int(g.kind)}, {K("count"), g.count}, {K("size"), g.size},
-                {K("gutter"), g.gutter}, {K("margin"), g.margin}, {K("color"), color(g.color)}, {K("visible"), g.visible}});
-        m[K("grids")] = grids;
-    }
+    if (!p.grids.empty())
+        m[K("grids")] = grids(p.grids);
     if (p.type == NodeType::Ellipse)
         m[K("arc")] = QCborArray{p.arcStart, p.arcSweep, p.arcInner};
     if (p.type == NodeType::Polygon || p.type == NodeType::Star) {
         m[K("points")] = p.pointCount;
         m[K("inner")] = p.starInner;
     }
-    if (p.type == NodeType::Vector || !p.vector.contours.empty())
+    if (p.type == NodeType::Vector || !p.vector.contours.empty() || p.vector.isNetwork())
         m[K("vector")] = vectorToCbor(p.vector);
     if (p.type == NodeType::Text) {
-        const TextStyle& t = p.textStyle;
         m[K("text")] = p.text;
-        m[K("font")] = QCborMap{{K("family"), t.family}, {K("weight"), t.weight}, {K("italic"), t.italic},
-            {K("size"), t.size}, {K("lh"), t.lineHeight}, {K("lhPct"), t.lineHeightPercent}, {K("ls"), t.letterSpacing},
-            {K("ps"), t.paragraphSpacing}, {K("ah"), int(t.alignH)}, {K("av"), int(t.alignV)},
-            {K("resize"), int(t.autoResize)}, {K("case"), int(t.textCase)}, {K("deco"), int(t.decoration)},
-            {K("maxLines"), t.maxLines}};
+        m[K("font")] = textStyleToCbor(p.textStyle);
+        if (p.textPath) {
+            m[K("textPath")] = qint64(p.textPath);
+            m[K("textPathOffset")] = p.textPathOffset;
+        }
+        if (!p.textRuns.empty()) {
+            QCborArray runs;
+            for (const TextRun& r : p.textRuns) {
+                QCborMap rm{{K("s"), r.start}, {K("e"), r.end}, {K("mask"), qint64(r.mask)}};
+                if (r.mask & RunFamily) rm[K("family")] = r.family;
+                if (r.mask & RunWeight) rm[K("weight")] = r.weight;
+                if (r.mask & RunItalic) rm[K("italic")] = r.italic;
+                if (r.mask & RunSize) rm[K("size")] = r.size;
+                if (r.mask & RunLetterSpacing) rm[K("ls")] = r.letterSpacing;
+                if (r.mask & RunDecoration) rm[K("deco")] = int(r.decoration);
+                if (r.mask & RunCase) rm[K("case")] = int(r.textCase);
+                if (r.mask & RunFill) rm[K("fill")] = color(r.fill);
+                if (r.mask & RunLink) rm[K("link")] = r.link;
+                runs.append(rm);
+            }
+            m[K("runs")] = runs;
+        }
+        if (!p.paragraphs.empty()) {
+            QCborArray paras;
+            for (const ParagraphAttr& a : p.paragraphs)
+                paras.append(QCborArray{int(a.list), a.indent});
+            m[K("paragraphs")] = paras;
+        }
     }
     if (p.type == NodeType::BooleanOp)
         m[K("boolOp")] = int(p.boolOp);
@@ -250,6 +464,44 @@ QCborMap propsToCbor(const Props& p)
     }
     if (p.type == NodeType::Page)
         m[K("background")] = color(p.pageBackground);
+    if (!p.libraryPage.isEmpty())
+        m[K("libraryPage")] = p.libraryPage;
+    if (!p.remote.isEmpty())
+        m[K("remote")] = p.remote;
+    if (!p.guides.empty()) {
+        QCborArray gs;
+        for (const Guide& g : p.guides)
+            gs.append(QCborArray{g.vertical, g.pos});
+        m[K("guides")] = gs;
+    }
+    const QString* styleIds[] = {&p.fillStyle, &p.strokeStyle, &p.textStyleId, &p.effectStyle, &p.gridStyle};
+    const char* styleKeys[] = {"fillStyle", "strokeStyle", "textStyle", "effectStyle", "gridStyle"};
+    for (int i = 0; i < 5; ++i)
+        if (!styleIds[i]->isEmpty())
+            m[QLatin1String(styleKeys[i])] = *styleIds[i];
+    if (!p.bindings.isEmpty())
+        m[K("bindings")] = stringMap(p.bindings);
+    if (!p.componentProps.empty()) {
+        QCborArray defs;
+        for (const ComponentProp& d : p.componentProps) {
+            QCborArray preferred;
+            for (auto id : d.preferred)
+                preferred.append(qint64(id));
+            defs.append(QCborMap{{K("id"), d.id}, {K("name"), d.name}, {K("type"), int(d.type)},
+                {K("default"), d.defaultValue}, {K("preferred"), preferred}});
+        }
+        m[K("componentProps")] = defs;
+    }
+    if (!p.propRefs.isEmpty())
+        m[K("propRefs")] = stringMap(p.propRefs);
+    if (!p.propValues.isEmpty())
+        m[K("propValues")] = stringMap(p.propValues);
+    if (!p.variableModes.isEmpty())
+        m[K("variableModes")] = stringMap(p.variableModes);
+    if (p.library && !p.library->empty())
+        m[K("library")] = libraryToCbor(*p.library);
+    if (p.colorProfile == ColorProfile::DisplayP3)
+        m[K("colorProfile")] = K("display-p3");
     return m;
 }
 
@@ -281,20 +533,10 @@ Props propsFromCbor(const QCborMap& m)
         p.stroke.miterLimit = num(s, "miter", 4);
         for (const QCborValue& d : s.value(K("dashes")).toArray())
             p.stroke.dashes.push_back(float(d.toDouble()));
+        for (const QCborValue& w : s.value(K("profile")).toArray())
+            p.stroke.widthProfile.push_back(point(w));
     }
-    for (const QCborValue& ev : m.value(K("effects")).toArray()) {
-        QCborMap em = ev.toMap();
-        Effect e;
-        e.type = EffectType(integer(em, "type"));
-        e.visible = flag(em, "visible", true);
-        e.color = color(em.value(K("color")), e.color);
-        e.offset = point(em.value(K("offset")));
-        e.radius = num(em, "radius");
-        e.spread = num(em, "spread");
-        e.blend = BlendMode(integer(em, "blend", int(BlendMode::Normal)));
-        e.showBehindTransparent = flag(em, "behind");
-        p.effects.push_back(e);
-    }
+    p.effects = effects(m.value(K("effects")));
     {
         QCborArray c = m.value(K("corners")).toArray();
         if (c.size() == 4)
@@ -319,6 +561,8 @@ Props propsFromCbor(const QCborMap& m)
         p.layout.counterAlign = LayoutAlign(integer(l, "calign"));
         p.layout.reverseZ = flag(l, "reverseZ");
         p.layout.strokesIncluded = flag(l, "strokesIncluded");
+        p.layout.gridColumns = integer(l, "gridCols", 2);
+        p.layout.gridRows = integer(l, "gridRows");
     }
     {
         QCborMap c = m.value(K("lchild")).toMap();
@@ -334,19 +578,13 @@ Props propsFromCbor(const QCborMap& m)
             p.layoutChild.maxW = mx[0].toDouble();
             p.layoutChild.maxH = mx[1].toDouble();
         }
+        const QCborArray span = c.value(K("span")).toArray();
+        if (span.size() == 2) {
+            p.layoutChild.colSpan = int(span[0].toInteger());
+            p.layoutChild.rowSpan = int(span[1].toInteger());
+        }
     }
-    for (const QCborValue& gv : m.value(K("grids")).toArray()) {
-        QCborMap gm = gv.toMap();
-        LayoutGrid g;
-        g.kind = LayoutGrid::Kind(integer(gm, "kind"));
-        g.count = integer(gm, "count", 12);
-        g.size = num(gm, "size", 10);
-        g.gutter = num(gm, "gutter", 20);
-        g.margin = num(gm, "margin");
-        g.color = color(gm.value(K("color")), g.color);
-        g.visible = flag(gm, "visible", true);
-        p.grids.push_back(g);
-    }
+    p.grids = grids(m.value(K("grids")));
     if (m.contains(K("arc"))) {
         QCborArray a = m.value(K("arc")).toArray();
         p.arcStart = a[0].toDouble();
@@ -358,23 +596,30 @@ Props propsFromCbor(const QCborMap& m)
     if (m.contains(K("vector")))
         p.vector = vectorFromCbor(m.value(K("vector")).toMap());
     p.text = str(m, "text");
-    if (m.contains(K("font"))) {
-        QCborMap f = m.value(K("font")).toMap();
-        TextStyle& t = p.textStyle;
-        t.family = str(f, "family", t.family);
-        t.weight = integer(f, "weight", 400);
-        t.italic = flag(f, "italic");
-        t.size = num(f, "size", 16);
-        t.lineHeight = num(f, "lh");
-        t.lineHeightPercent = flag(f, "lhPct");
-        t.letterSpacing = num(f, "ls");
-        t.paragraphSpacing = num(f, "ps");
-        t.alignH = TextAlignH(integer(f, "ah"));
-        t.alignV = TextAlignV(integer(f, "av"));
-        t.autoResize = TextAutoResize(integer(f, "resize", int(TextAutoResize::WidthAndHeight)));
-        t.textCase = TextCase(integer(f, "case"));
-        t.decoration = TextDecoration(integer(f, "deco"));
-        t.maxLines = integer(f, "maxLines");
+    p.textPath = NodeId(m.value(K("textPath")).toInteger());
+    p.textPathOffset = num(m, "textPathOffset");
+    if (m.contains(K("font")))
+        p.textStyle = textStyleFromCbor(m.value(K("font")).toMap());
+    for (const QCborValue& rv : m.value(K("runs")).toArray()) {
+        const QCborMap rm = rv.toMap();
+        TextRun r;
+        r.start = integer(rm, "s");
+        r.end = integer(rm, "e");
+        r.mask = std::uint32_t(rm.value(K("mask")).toInteger());
+        r.family = str(rm, "family");
+        r.weight = integer(rm, "weight", 400);
+        r.italic = flag(rm, "italic");
+        r.size = num(rm, "size", 16);
+        r.letterSpacing = num(rm, "ls");
+        r.decoration = TextDecoration(integer(rm, "deco"));
+        r.textCase = TextCase(integer(rm, "case"));
+        r.fill = color(rm.value(K("fill")), r.fill);
+        r.link = str(rm, "link");
+        p.textRuns.push_back(r);
+    }
+    for (const QCborValue& av : m.value(K("paragraphs")).toArray()) {
+        const QCborArray a = av.toArray();
+        p.paragraphs.push_back({ListType(a.at(0).toInteger()), int(a.at(1).toInteger())});
     }
     p.boolOp = BooleanOpType(integer(m, "boolOp"));
     p.componentId = NodeId(m.value(K("componentId")).toInteger());
@@ -390,7 +635,160 @@ Props propsFromCbor(const QCborMap& m)
     }
     if (m.contains(K("background")))
         p.pageBackground = color(m.value(K("background")), p.pageBackground);
+    p.libraryPage = str(m, "libraryPage");
+    p.remote = str(m, "remote");
+    for (const QCborValue& gv : m.value(K("guides")).toArray()) {
+        const QCborArray a = gv.toArray();
+        p.guides.push_back({a.at(0).toBool(), float(a.at(1).toDouble())});
+    }
+    p.fillStyle = str(m, "fillStyle");
+    p.strokeStyle = str(m, "strokeStyle");
+    p.textStyleId = str(m, "textStyle");
+    p.effectStyle = str(m, "effectStyle");
+    p.gridStyle = str(m, "gridStyle");
+    p.bindings = stringMap(m.value(K("bindings")));
+    for (const QCborValue& dv : m.value(K("componentProps")).toArray()) {
+        const QCborMap dm = dv.toMap();
+        ComponentProp d;
+        d.id = str(dm, "id");
+        d.name = str(dm, "name");
+        d.type = ComponentPropType(integer(dm, "type"));
+        d.defaultValue = str(dm, "default");
+        for (const QCborValue& x : dm.value(K("preferred")).toArray())
+            d.preferred.push_back(NodeId(x.toInteger()));
+        p.componentProps.push_back(d);
+    }
+    p.propRefs = stringMap(m.value(K("propRefs")));
+    p.propValues = stringMap(m.value(K("propValues")));
+    p.variableModes = stringMap(m.value(K("variableModes")));
+    if (m.contains(K("library")))
+        p.library = std::make_shared<Library>(libraryFromCbor(m.value(K("library")).toMap()));
+    if (str(m, "colorProfile") == QLatin1String("display-p3"))
+        p.colorProfile = ColorProfile::DisplayP3;
     return p;
+}
+
+QCborMap libraryToCbor(const Library& lib)
+{
+    QCborArray styles;
+    for (const Style& st : lib.styles) {
+        QCborMap m{{K("id"), st.id}, {K("name"), st.name}, {K("type"), QString::fromLatin1(styleTypeName(st.type))}};
+        if (!st.remote.isEmpty())
+            m[K("remote")] = st.remote;
+        if (!st.description.isEmpty())
+            m[K("description")] = st.description;
+        switch (st.type) {
+        case StyleType::Fill: m[K("paints")] = paints(st.paints); break;
+        case StyleType::Text: m[K("text")] = textStyleToCbor(st.text); break;
+        case StyleType::Effect: m[K("effects")] = effects(st.effects); break;
+        case StyleType::Grid: m[K("grids")] = grids(st.grids); break;
+        }
+        styles.append(m);
+    }
+    QCborArray collections;
+    for (const VarCollection& c : lib.collections) {
+        QCborArray modes;
+        for (const VarMode& md : c.modes)
+            modes.append(QCborArray{md.id, md.name});
+        QCborMap cm{{K("id"), c.id}, {K("name"), c.name}, {K("modes"), modes}};
+        if (!c.remote.isEmpty())
+            cm[K("remote")] = c.remote;
+        collections.append(cm);
+    }
+    QCborArray variables;
+    for (const Variable& v : lib.variables) {
+        QCborMap values;
+        for (auto it = v.values.begin(); it != v.values.end(); ++it) {
+            const VarValue& x = it.value();
+            QCborMap vm;
+            if (!x.alias.isEmpty()) {
+                vm[K("alias")] = x.alias;
+            } else {
+                switch (v.type) {
+                case VarType::Color: vm[K("color")] = color(x.color); break;
+                case VarType::Number: vm[K("number")] = x.number; break;
+                case VarType::String: vm[K("string")] = x.string; break;
+                case VarType::Boolean: vm[K("boolean")] = x.boolean; break;
+                }
+            }
+            values[it.key()] = vm;
+        }
+        QCborMap m{{K("id"), v.id}, {K("name"), v.name}, {K("collection"), v.collection},
+            {K("type"), QString::fromLatin1(varTypeName(v.type))}, {K("values"), values}};
+        if (!v.description.isEmpty())
+            m[K("description")] = v.description;
+        if (!v.remote.isEmpty())
+            m[K("remote")] = v.remote;
+        variables.append(m);
+    }
+    QCborArray links;
+    for (const LibraryLink& l : lib.links)
+        links.append(QCborMap{{K("id"), l.id}, {K("path"), l.path}, {K("name"), l.name}, {K("hash"), l.hash}});
+    QCborMap out{{K("styles"), styles}, {K("collections"), collections}, {K("variables"), variables}};
+    if (!links.isEmpty())
+        out[K("links")] = links;
+    return out;
+}
+
+Library libraryFromCbor(const QCborMap& m)
+{
+    Library lib;
+    for (const QCborValue& sv : m.value(K("styles")).toArray()) {
+        const QCborMap sm = sv.toMap();
+        Style st;
+        st.id = str(sm, "id");
+        st.name = str(sm, "name");
+        st.type = styleTypeFromName(str(sm, "type"));
+        st.description = str(sm, "description");
+        st.remote = str(sm, "remote");
+        st.paints = paints(sm.value(K("paints")));
+        if (sm.contains(K("text")))
+            st.text = textStyleFromCbor(sm.value(K("text")).toMap());
+        st.effects = effects(sm.value(K("effects")));
+        st.grids = grids(sm.value(K("grids")));
+        lib.styles.push_back(st);
+    }
+    for (const QCborValue& cv : m.value(K("collections")).toArray()) {
+        const QCborMap cm = cv.toMap();
+        VarCollection c;
+        c.id = str(cm, "id");
+        c.name = str(cm, "name");
+        c.remote = str(cm, "remote");
+        for (const QCborValue& mv : cm.value(K("modes")).toArray()) {
+            const QCborArray a = mv.toArray();
+            c.modes.push_back({a.at(0).toString(), a.at(1).toString()});
+        }
+        if (c.modes.empty())
+            c.modes.push_back({Library::newId(), QStringLiteral("Mode 1")});
+        lib.collections.push_back(c);
+    }
+    for (const QCborValue& vv : m.value(K("variables")).toArray()) {
+        const QCborMap vm = vv.toMap();
+        Variable v;
+        v.id = str(vm, "id");
+        v.name = str(vm, "name");
+        v.collection = str(vm, "collection");
+        v.type = varTypeFromName(str(vm, "type"));
+        v.description = str(vm, "description");
+        v.remote = str(vm, "remote");
+        const QCborMap values = vm.value(K("values")).toMap();
+        for (auto it = values.begin(); it != values.end(); ++it) {
+            const QCborMap xm = it.value().toMap();
+            VarValue x;
+            x.alias = str(xm, "alias");
+            x.color = color(xm.value(K("color")), x.color);
+            x.number = num(xm, "number");
+            x.string = str(xm, "string");
+            x.boolean = flag(xm, "boolean");
+            v.values.insert(it.key().toString(), x);
+        }
+        lib.variables.push_back(v);
+    }
+    for (const QCborValue& lv : m.value(K("links")).toArray()) {
+        const QCborMap lm = lv.toMap();
+        lib.links.push_back({str(lm, "id"), str(lm, "path"), str(lm, "name"), str(lm, "hash")});
+    }
+    return lib;
 }
 
 static void writeTree(const Document& doc, NodeId id, QCborArray& out)

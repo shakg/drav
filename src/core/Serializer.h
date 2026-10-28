@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Library.h"
 #include "Node.h"
 
 #include <QByteArray>
@@ -11,7 +12,8 @@ class Document;
 
 namespace io {
 
-constexpr int kFormatVersion = 1;
+// 2: styles, variables, bindings (library on the document node).
+constexpr int kFormatVersion = 2;
 
 // .drav file: "DRAV" magic, then a CBOR map with nodes and the image store.
 QByteArray save(const Document& doc);
@@ -19,6 +21,10 @@ bool load(Document& doc, const QByteArray& data, QString* error = nullptr);
 
 QCborMap propsToCbor(const Props& p);
 Props propsFromCbor(const QCborMap& m);
+
+
+QCborMap libraryToCbor(const Library& lib);
+Library libraryFromCbor(const QCborMap& m);
 
 // Clipboard: subtrees of the given nodes (plus referenced images and main components' ids).
 QByteArray copy(const Document& doc, const std::vector<NodeId>& ids);

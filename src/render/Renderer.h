@@ -2,6 +2,7 @@
 
 #include "core/Document.h"
 
+#include <include/core/SkColorSpace.h>
 #include <include/core/SkImage.h>
 #include <include/core/SkPicture.h>
 #include <modules/skparagraph/include/Paragraph.h>
@@ -12,6 +13,7 @@
 #include <unordered_map>
 
 class SkCanvas;
+class SkColorFilter;
 class SkPaint;
 
 namespace drav {
@@ -41,6 +43,8 @@ public:
 
     sk_sp<SkImage> image(const QString& hash);
     void clear();
+    // Color space document colors are in (nullptr = sRGB). Follows the document's color profile.
+    SkColorSpace* colorSpace() const { return m_cs.get(); }
 
     static void registerCodecs();
 
@@ -50,14 +54,18 @@ private:
     void drawFills(SkCanvas* c, const Node& n, const SkPath& path, float extraAlpha);
     void drawStrokes(SkCanvas* c, const Node& n, const SkPath& path, float extraAlpha);
     void drawText(SkCanvas* c, const Node& n, float extraAlpha);
+    void drawTextOnPath(SkCanvas* c, const Node& n, float extraAlpha);
     void drawDropShadows(SkCanvas* c, const Node& n, const SkPath& path);
     void drawInnerShadows(SkCanvas* c, const Node& n, const SkPath& path);
     bool makePaint(const Paint& paint, const Props& p, float extraAlpha, SkPaint* out);
     void drawArrowCaps(SkCanvas* c, const Node& n, const SkPath& path, const SkPaint& stroke);
     void drawGrids(SkCanvas* c, const Node& n);
+    void syncColorProfile();
 
     const Document& m_doc;
     Options m_opts;
+    ColorProfile m_profile = ColorProfile::SRGB;
+    sk_sp<SkColorSpace> m_cs;
 
     struct PicEntry {
         std::uint64_t version = 0;
@@ -73,5 +81,6 @@ private:
 };
 
 SkBlendMode toSkBlend(BlendMode m);
+sk_sp<SkColorFilter> imageAdjustments(const Paint& p);
 
 } // namespace drav

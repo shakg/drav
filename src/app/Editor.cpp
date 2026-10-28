@@ -4,6 +4,8 @@
 #include "SvgImport.h"
 #include "Tools.h"
 
+#include "core/Color.h"
+#include "core/FigImport.h"
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
@@ -16,10 +18,12 @@
 #include <include/core/SkRRect.h>
 
 #include <QFile>
+#include <QDateTime>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QKeyEvent>
 #include <QSaveFile>
+#include <QTimer>
 
 #include <cmath>
 
@@ -52,6 +56,7 @@ Editor::Editor(QObject* parent)
     m_tools["select"] = std::make_unique<SelectTool>(*this);
     m_tools["hand"] = std::make_unique<HandTool>(*this);
     m_tools["frame"] = std::make_unique<ShapeTool>(*this, NodeType::Frame);
+    m_tools["section"] = std::make_unique<ShapeTool>(*this, NodeType::Section);
     m_tools["rect"] = std::make_unique<ShapeTool>(*this, NodeType::Rectangle);
     m_tools["ellipse"] = std::make_unique<ShapeTool>(*this, NodeType::Ellipse);
     m_tools["polygon"] = std::make_unique<ShapeTool>(*this, NodeType::Polygon);
@@ -63,6 +68,9 @@ Editor::Editor(QObject* parent)
     m_tools["pen"] = std::make_unique<PenTool>(*this);
     m_tools["pencil"] = std::make_unique<PencilTool>(*this);
     m_tools["vectorEdit"] = std::make_unique<VectorEditTool>(*this);
+    m_tools["scale"] = std::make_unique<ScaleTool>(*this);
+    m_tools["eyedropper"] = std::make_unique<EyedropperTool>(*this);
+    m_tools["crop"] = std::make_unique<CropTool>(*this);
     setTool(QStringLiteral("select"));
 
     connect(m_doc.get(), &Document::changed, this, &Editor::onDocChanged);
@@ -75,9 +83,23 @@ Editor::Editor(QObject* parent)
         requestUpdate();
     });
     m_layers->sync();
+
+    newSession();
+    auto* autosave = new QTimer(this);
+    autosave->setInterval(30000);
+    connect(autosave, &QTimer::timeout, this, [this] {
+        if (m_doc->isDirty())
+            autosaveNow();
+    });
+    autosave->start();
 }
 
-Editor::~Editor() = default;
+Editor::~Editor()
+{
+    // A clean exit with nothing unsaved needs no recovery file.
+    if (!m_doc->isDirty())
+        QFile::remove(recoveryPath());
+}
 
 QObject* Editor::layersObject() const { return m_layers; }
 
@@ -203,7 +225,8 @@ FrameSnapshot Editor::snapshot()
     }
     s.content = m_content;
     s.view = view();
-    s.background = m_doc->at(m_doc->currentPage()).p.pageBackground;
+    // The screen surface is sRGB; Skia converts document colors into it, the clear color by hand.
+    s.background = color::convert(m_doc->at(m_doc->currentPage()).p.pageBackground, m_doc->colorProfile(), ColorProfile::SRGB);
     SkPictureRecorder rec;
     SkCanvas* c = rec.beginRecording(SkRect::MakeWH(float(m_viewport.width()), float(m_viewport.height())));
     drawOverlay(c);
@@ -225,6 +248,11 @@ void Editor::reportFrameTime(double ms)
 void Editor::onDocChanged(bool structure)
 {
     m_contentDirty = true;
+    if (m_doc->libraryPtr() != m_lastLibrary) {
+        m_lastLibrary = m_doc->libraryPtr();
+        emit libraryChanged();
+        emit librariesChanged();
+    }
     m_layers->sync();
     if (structure) {
         emit componentsChanged();
@@ -247,19 +275,63 @@ void Editor::onSelectionChanged()
 
 void Editor::mousePress(const InputEvent& e)
 {
+    // Rulers create guides; existing guides drag with the move tool.
+    bool vertical = false;
+    const bool ruler = m_rulers && inRuler(e.screen, &vertical);
+    const int guide = m_toolName == QLatin1String("select") ? guideAt(e.screen) : -1;
+    if (e.button == Qt::LeftButton && (ruler || guide >= 0)) {
+        m_guideDrag = {};
+        m_guideDrag.active = true;
+        m_guideDrag.index = ruler ? -1 : guide;
+        // Dragging from the top ruler makes a horizontal guide, from the left ruler a vertical one.
+        m_guideDrag.vertical = ruler ? vertical : m_doc->at(m_doc->currentPage()).p.guides[guide].vertical;
+        m_guideDrag.pos = m_guideDrag.vertical ? e.page.x() : e.page.y();
+        m_guideDrag.remove = ruler;
+        requestUpdate();
+        return;
+    }
     m_tool->press(e);
     emit cursorChanged();
 }
 
 void Editor::mouseMove(const InputEvent& e)
 {
+    m_alt = e.mods & Qt::AltModifier;
+    if (m_guideDrag.active) {
+        bool v;
+        m_guideDrag.pos = snapValue(m_guideDrag.vertical ? e.page.x() : e.page.y());
+        m_guideDrag.remove = inRuler(e.screen, &v);
+        requestUpdate();
+        return;
+    }
     m_tool->move(e);
     emit cursorChanged();
 }
 
 void Editor::mouseRelease(const InputEvent& e)
 {
+    if (m_guideDrag.active) {
+        const GuideDrag g = m_guideDrag;
+        m_guideDrag = {};
+        const NodeId page = m_doc->currentPage();
+        m_doc->breakMerge();
+        m_doc->begin(g.index < 0 ? tr("Add guide") : g.remove ? tr("Remove guide") : tr("Move guide"));
+        auto& guides = m_doc->edit(page).guides;
+        if (g.index >= 0 && g.index < int(guides.size())) {
+            if (g.remove)
+                guides.erase(guides.begin() + g.index);
+            else
+                guides[g.index].pos = g.pos;
+        } else if (!g.remove) {
+            guides.push_back({g.vertical, g.pos});
+        }
+        m_doc->commit();
+        requestUpdate();
+        return;
+    }
     m_tool->release(e);
+    if (textEditing())
+        emit propsChanged(); // the character selection drives the text inspector
     emit cursorChanged();
     requestUpdate();
 }
@@ -272,6 +344,16 @@ void Editor::mouseDoubleClick(const InputEvent& e)
 
 void Editor::hover(const InputEvent& e)
 {
+    const bool alt = e.mods & Qt::AltModifier;
+    if (alt != m_alt) {
+        m_alt = alt;
+        requestUpdate();
+    }
+    const int g = m_toolName == QLatin1String("select") ? guideAt(e.screen) : -1;
+    if (g != m_guideHover) {
+        m_guideHover = g;
+        emit cursorChanged();
+    }
     m_tool->move(e);
     emit cursorChanged();
 }
@@ -288,6 +370,10 @@ bool Editor::inputMethod(QInputMethodEvent* e)
 
 bool Editor::keyRelease(QKeyEvent* e)
 {
+    if (e->key() == Qt::Key_Alt) {
+        m_alt = false;
+        requestUpdate();
+    }
     if (e->key() == Qt::Key_Space && !e->isAutoRepeat() && !m_returnTool.isEmpty()) {
         const QString back = m_returnTool;
         m_returnTool.clear();
@@ -299,8 +385,15 @@ bool Editor::keyRelease(QKeyEvent* e)
 
 bool Editor::keyPress(QKeyEvent* e)
 {
-    if (m_tool->key(e))
+    if (e->key() == Qt::Key_Alt && !m_alt) {
+        m_alt = true;
+        requestUpdate();
+    }
+    if (m_tool->key(e)) {
+        if (textEditing())
+            emit propsChanged();
         return true;
+    }
     if (textEditing())
         return false;
     const auto mods = e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier | Qt::MetaModifier);
@@ -321,7 +414,12 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_X: cut(); return true;
         case Qt::Key_V: shift ? pasteInPlace() : paste(); return true;
         case Qt::Key_D: duplicate(); return true;
-        case Qt::Key_A: selectAll(); return true;
+        case Qt::Key_A:
+            if (alt)
+                selectSame(QStringLiteral("matching"));
+            else
+                selectAll();
+            return true;
         case Qt::Key_G:
             if (alt)
                 frameSelection();
@@ -348,7 +446,13 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_M: if (alt) { useAsMask(); return true; } return false;
         case Qt::Key_O: if (shift) { outlineStroke(); return true; } return false;
         case Qt::Key_Y: setOutlines(!outlines()); return true;
-        case Qt::Key_R: if (selectionCount() == 1) emit requestRename(qint64(selected().front())); return true;
+        case Qt::Key_R:
+            if (selectionCount() == 1)
+                emit requestRename(qint64(selected().front()));
+            else if (selectionCount() > 1)
+                emit requestBulkRename();
+            return true;
+        case Qt::Key_F: emit requestFind(); return true;
         case Qt::Key_BracketRight: shift ? bringToFront() : bringForward(); return true;
         case Qt::Key_BracketLeft: shift ? sendToBack() : sendBackward(); return true;
         case Qt::Key_Equal:
@@ -434,6 +538,8 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_V: flip(false); return true;
         case Qt::Key_L: setTool(QStringLiteral("arrow")); return true;
         case Qt::Key_P: setTool(QStringLiteral("pencil")); return true;
+        case Qt::Key_R: setRulers(!m_rulers); return true;
+        case Qt::Key_S: setTool(QStringLiteral("section")); return true;
         default: break;
         }
     }
@@ -448,6 +554,8 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_L: setTool(QStringLiteral("line")); return true;
         case Qt::Key_P: setTool(QStringLiteral("pen")); return true;
         case Qt::Key_T: setTool(QStringLiteral("text")); return true;
+        case Qt::Key_K: setTool(QStringLiteral("scale")); return true;
+        case Qt::Key_I: pickColor(); m_pickForPopup = false; return true;
         default: break;
         }
         if (k >= Qt::Key_0 && k <= Qt::Key_9 && !m_doc->selection().empty()) {
@@ -519,6 +627,12 @@ bool Editor::textEditing() const { return m_toolName == QLatin1String("textEdit"
 
 int Editor::cursorShape() const
 {
+    const auto& guides = m_doc->at(m_doc->currentPage()).p.guides;
+    const int g = m_guideDrag.active ? m_guideDrag.index : m_guideHover;
+    if (m_guideDrag.active && g < 0)
+        return int(m_guideDrag.vertical ? Qt::SplitHCursor : Qt::SplitVCursor);
+    if (g >= 0 && g < int(guides.size()))
+        return int(guides[g].vertical ? Qt::SplitHCursor : Qt::SplitVCursor);
     return int(m_tool->cursor());
 }
 
@@ -563,7 +677,7 @@ NodeId hitRec(const Document& d, NodeId id, SkPoint pt, float tol)
     sp.setStyle(SkPaint::kStroke_Style);
     sp.setStrokeWidth(std::max(n.p.strokes.empty() ? 0.f : n.p.stroke.weight, 0.f) + tol * 2);
     SkPath outline;
-    skpathutils::FillPathWithPaint(path, sp, &outline);
+    skpathutils::FillPathWithPaint(t == NodeType::Vector ? strokePath(d, id) : path, sp, &outline);
     return outline.contains(lp.x(), lp.y()) ? id : kNoNode;
 }
 
@@ -582,9 +696,11 @@ NodeId Editor::hitDeepest(SkPoint page, float tolerance) const
 bool Editor::isTopLevelContainer(NodeId id) const
 {
     const Node& n = m_doc->at(id);
-    if (n.type() == NodeType::ComponentSet)
+    if (n.type() == NodeType::ComponentSet || n.type() == NodeType::Section)
         return true;
-    if (m_doc->at(n.parent).type() != NodeType::Page)
+    // Frames directly on the page or in a section behave as top-level.
+    const NodeType pt = m_doc->at(n.parent).type();
+    if (pt != NodeType::Page && pt != NodeType::Section)
         return false;
     return n.type() == NodeType::Frame || n.type() == NodeType::Component;
 }
@@ -621,18 +737,10 @@ NodeId Editor::selectableAt(SkPoint page, bool deep) const
 
 NodeId Editor::frameLabelAt(QPointF screen) const
 {
-    const SkFont font = text::uiFont(11);
-    for (NodeId id : m_doc->at(m_doc->currentPage()).children) {
-        const Node& n = m_doc->at(id);
-        if (!isFrameLike(n.type()) || !n.p.visible)
-            continue;
-        SkRect b = view().mapRect(m_doc->worldBounds(id));
-        const QByteArray name = n.p.name.toUtf8();
-        float w = font.measureText(name.constData(), name.size(), SkTextEncoding::kUTF8);
-        SkRect label = SkRect::MakeXYWH(b.left(), b.top() - 20, std::max(w, 20.f), 18);
-        if (label.contains(float(screen.x()), float(screen.y())))
-            return id;
-    }
+    const auto frames = labelledFrames();
+    for (auto it = frames.rbegin(); it != frames.rend(); ++it)
+        if (frameLabelRect(*it).contains(float(screen.x()), float(screen.y())))
+            return *it;
     return kNoNode;
 }
 
@@ -790,28 +898,63 @@ void Editor::selectRange(qint64 id)
 
 // ---------------------------------------------------------------- overlay
 
-void Editor::drawFrameLabels(SkCanvas* c)
+std::vector<NodeId> Editor::labelledFrames() const
 {
-    const SkFont font = text::uiFont(11);
-    SkPaint tp;
-    tp.setAntiAlias(true);
-    const auto& sel = m_doc->selection();
+    // Top-level frames, sections, and frames directly inside sections.
+    std::vector<NodeId> out;
     for (NodeId id : m_doc->at(m_doc->currentPage()).children) {
         const Node& n = m_doc->at(id);
         if (!isFrameLike(n.type()) || !n.p.visible)
             continue;
+        out.push_back(id);
+        if (n.type() == NodeType::Section)
+            for (NodeId c : n.children)
+                if (isFrameLike(m_doc->at(c).type()) && m_doc->at(c).p.visible)
+                    out.push_back(c);
+    }
+    return out;
+}
+
+SkRect Editor::frameLabelRect(NodeId id) const
+{
+    const SkFont font = text::uiFont(11, m_doc->at(id).type() == NodeType::Section);
+    const SkRect b = view().mapRect(m_doc->worldBounds(id));
+    const QByteArray name = m_doc->at(id).p.name.toUtf8();
+    const float w = font.measureText(name.constData(), name.size(), SkTextEncoding::kUTF8);
+    if (m_doc->at(id).type() == NodeType::Section) // pill inside the top-left corner
+        return SkRect::MakeXYWH(b.left() + 6, b.top() + 6, std::min(w + 14, std::max(b.width() - 12, 20.f)), 20);
+    return SkRect::MakeXYWH(b.left(), b.top() - 20, std::max(std::min(w, b.width()), 20.f), 18);
+}
+
+void Editor::drawFrameLabels(SkCanvas* c)
+{
+    SkPaint tp;
+    tp.setAntiAlias(true);
+    const auto& sel = m_doc->selection();
+    for (NodeId id : labelledFrames()) {
+        const Node& n = m_doc->at(id);
         SkRect b = view().mapRect(m_doc->worldBounds(id));
         if (b.right() < 0 || b.left() > m_viewport.width() || b.bottom() < 0 || b.top() > m_viewport.height() + 20)
             continue;
         const bool isSel = std::find(sel.begin(), sel.end(), id) != sel.end() || m_hover == id;
         const bool comp = n.type() == NodeType::Component || n.type() == NodeType::ComponentSet
             || n.type() == NodeType::Instance;
-        tp.setColor(comp ? kPurple : isSel ? kBlue : SkColorSetRGB(0xA0, 0xA0, 0xA0));
         const QByteArray utf8 = n.p.name.toUtf8();
-        // Clip the name to the frame width.
+        const SkRect label = frameLabelRect(id);
         c->save();
-        c->clipRect(SkRect::MakeXYWH(b.left(), b.top() - 22, std::max(b.width(), 24.f), 22));
-        c->drawSimpleText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, b.left(), b.top() - 6, font, tp);
+        c->clipRect(label);
+        if (n.type() == NodeType::Section) {
+            SkPaint bg;
+            bg.setAntiAlias(true);
+            bg.setColor(isSel ? kBlue : SkColorSetARGB(0xE6, 0x55, 0x55, 0x55));
+            c->drawRRect(SkRRect::MakeRectXY(label, 4, 4), bg);
+            tp.setColor(SK_ColorWHITE);
+            c->drawSimpleText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, label.left() + 7, label.top() + 14,
+                text::uiFont(11, true), tp);
+        } else {
+            tp.setColor(comp ? kPurple : isSel ? kBlue : SkColorSetRGB(0xA0, 0xA0, 0xA0));
+            c->drawSimpleText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, b.left(), b.top() - 6, text::uiFont(11), tp);
+        }
         c->restore();
     }
 }
@@ -835,7 +978,8 @@ void Editor::drawSelection(SkCanvas* c)
         const Node& n = m_doc->at(id);
         SkPath p = (n.type() == NodeType::Text || isFrameLike(n.type()) || n.type() == NodeType::Group)
             ? SkPath::Rect(n.localRect())
-            : fillPath(*m_doc, id);
+            : n.type() == NodeType::Vector ? strokePath(*m_doc, id)
+                                           : fillPath(*m_doc, id);
         c->drawPath(p.makeTransform(m), line);
     }
     if (!showSizeLabel)
@@ -898,6 +1042,7 @@ void Editor::drawSelection(SkCanvas* c)
 void Editor::drawOverlay(SkCanvas* c)
 {
     const SkMatrix v = view();
+    drawPageGuides(c);
     drawFrameLabels(c);
 
     const auto& sel = m_doc->selection();
@@ -911,7 +1056,8 @@ void Editor::drawOverlay(SkCanvas* c)
         SkMatrix m = SkMatrix::Concat(v, m_doc->worldTransform(m_hover));
         SkPath p = (n.type() == NodeType::Text || isFrameLike(n.type()) || n.type() == NodeType::Group)
             ? SkPath::Rect(n.localRect())
-            : fillPath(*m_doc, m_hover);
+            : n.type() == NodeType::Vector ? strokePath(*m_doc, m_hover)
+                                           : fillPath(*m_doc, m_hover);
         c->drawPath(p.makeTransform(m), hp);
     }
     if (dropTarget && m_doc->isAttached(dropTarget) && m_doc->at(dropTarget).type() != NodeType::Page) {
@@ -953,6 +1099,10 @@ void Editor::drawOverlay(SkCanvas* c)
         }
     }
     m_tool->drawOverlay(c);
+    if (m_alt)
+        drawMeasurements(c);
+    if (m_rulers)
+        drawRulers(c);
 }
 
 // ---------------------------------------------------------------- creation helpers
@@ -973,6 +1123,7 @@ Props Editor::defaultProps(NodeType t) const
         {int(NodeType::Text), QStringLiteral("Text")},
         {int(NodeType::Component), QStringLiteral("Component")},
         {int(NodeType::BooleanOp), QStringLiteral("Boolean")},
+        {int(NodeType::Section), QStringLiteral("Section")},
     };
     // Number new layers per type like "Rectangle 3".
     int count = 0;
@@ -985,6 +1136,11 @@ Props Editor::defaultProps(NodeType t) const
     switch (t) {
     case NodeType::Frame:
         p.fills = {Paint::solid(SkColors::kWhite)};
+        break;
+    case NodeType::Section:
+        p.fills = {Paint::solid({0.27f, 0.27f, 0.27f, 1})};
+        p.corners = {2, 2, 2, 2};
+        p.clipsContent = false;
         break;
     case NodeType::Rectangle:
     case NodeType::Ellipse:
@@ -1032,6 +1188,9 @@ QString Editor::fileName() const
 
 void Editor::newDocument()
 {
+    if (!m_doc->isDirty())
+        QFile::remove(recoveryPath());
+    newSession();
     setTool(QStringLiteral("select"));
     m_doc->clear();
     m_renderer->clear();
@@ -1066,7 +1225,11 @@ bool Editor::open(const QUrl& url)
         setStatus(err);
         return false;
     }
+    if (!m_doc->isDirty())
+        QFile::remove(recoveryPath());
+    newSession();
     m_fileUrl = QUrl::fromLocalFile(f.fileName());
+    addRecent(f.fileName());
     m_contentDirty = true;
     emit fileChanged();
     emit componentsChanged();
@@ -1100,6 +1263,13 @@ bool Editor::saveAs(const QUrl& url)
     }
     m_doc->markSaved();
     m_fileUrl = QUrl::fromLocalFile(path);
+    QFile::remove(recoveryPath());
+    QFile::remove(recoveryPath() + QStringLiteral(".json"));
+    addRecent(path);
+    // Keep an automatic version at most every 30 minutes.
+    const QVariantList vs = versions();
+    if (vs.isEmpty() || vs.front().toMap().value(QStringLiteral("time")).toDateTime().secsTo(QDateTime::currentDateTime()) > 1800)
+        saveVersion(tr("Autosave"));
     emit fileChanged();
     setStatus(tr("Saved %1").arg(fileName()));
     return true;
@@ -1113,6 +1283,28 @@ bool Editor::importFile(const QUrl& url)
         return false;
     const QByteArray data = f.readAll();
     const QString ext = QFileInfo(path).suffix().toLower();
+    if (ext == QLatin1String("fig")) {
+        // Figma file: its pages are added to this document.
+        const NodeId emptyPage = m_doc->pages().size() == 1 && m_doc->at(m_doc->currentPage()).children.empty()
+            ? m_doc->currentPage()
+            : kNoNode;
+        m_doc->begin(tr("Import Figma file"));
+        fig::Result res;
+        QString err;
+        if (!fig::import(*m_doc, data, &res, &err) || res.pages.empty()) {
+            m_doc->cancel();
+            setStatus(err.isEmpty() ? tr("No pages in %1").arg(QFileInfo(path).fileName()) : err);
+            return false;
+        }
+        if (emptyPage)
+            m_doc->remove(emptyPage);
+        m_doc->setCurrentPage(res.pages.front());
+        m_doc->commit();
+        zoomToFit();
+        setStatus(res.warnings.isEmpty() ? tr("Imported %1 layers").arg(res.layers)
+                                         : tr("Imported %1 layers; %2").arg(res.layers).arg(res.warnings.join(QStringLiteral("; "))));
+        return true;
+    }
     SkPoint center = toPage(QPointF(m_viewport.width() / 2, m_viewport.height() / 2));
     m_doc->begin(tr("Import"));
     std::vector<NodeId> created;

@@ -8,6 +8,9 @@ Menu {
     signal saveAsRequested()
     signal importRequested()
     signal exportRequested()
+    signal versionsRequested()
+    signal findRequested()
+    signal consoleRequested()
 
     component Item_: MenuItem {
         property string shortcut
@@ -20,11 +23,60 @@ Menu {
     }
 
     Menu {
+        id: pluginsMenu
+        title: qsTr("Plugins")
+        property var list: []
+        onAboutToShow: list = editor.plugins()
+        Instantiator {
+            model: pluginsMenu.list
+            delegate: MenuItem {
+                required property var modelData
+                text: modelData.name
+                onTriggered: editor.runPlugin(modelData.path)
+            }
+            onObjectAdded: (i, o) => pluginsMenu.insertItem(i, o)
+            onObjectRemoved: (i, o) => pluginsMenu.removeItem(o)
+        }
+        MenuSeparator {}
+        MenuItem { text: qsTr("Script console…"); onTriggered: root.consoleRequested() }
+        MenuItem { text: qsTr("Open plugins folder"); onTriggered: Qt.openUrlExternally("file://" + editor.pluginsFolder()) }
+    }
+
+    Menu {
         title: qsTr("File")
         Item_ { text: qsTr("New"); shortcut: "Ctrl+N"; onTriggered: editor.newDocument() }
         Item_ { text: qsTr("Open…"); shortcut: "Ctrl+O"; onTriggered: root.openRequested() }
         Item_ { text: qsTr("Save"); shortcut: "Ctrl+S"; onTriggered: if (!editor.save()) root.saveAsRequested() }
         Item_ { text: qsTr("Save as…"); shortcut: "Ctrl+Shift+S"; onTriggered: root.saveAsRequested() }
+        Menu {
+            id: recentMenu
+            title: qsTr("Open recent")
+            enabled: editor.recentFiles.length > 0
+            Instantiator {
+                model: editor.recentFiles
+                delegate: MenuItem {
+                    required property string modelData
+                    text: modelData.substring(modelData.lastIndexOf("/") + 1)
+                    onTriggered: editor.open("file://" + modelData)
+                }
+                onObjectAdded: (i, o) => recentMenu.insertItem(i, o)
+                onObjectRemoved: (i, o) => recentMenu.removeItem(o)
+            }
+            MenuSeparator {}
+            MenuItem { text: qsTr("Clear recent"); onTriggered: editor.clearRecentFiles() }
+        }
+        Item_ { text: qsTr("Version history…"); onTriggered: root.versionsRequested() }
+        Menu {
+            title: qsTr("Color profile")
+            // Assigning keeps the color values; converting keeps how colors look.
+            Item_ { text: (editor.colorProfile === "srgb" ? "✓ " : "") + qsTr("sRGB"); onTriggered: editor.setColorProfile("srgb", false) }
+            Item_ { text: (editor.colorProfile === "display-p3" ? "✓ " : "") + qsTr("Display P3"); onTriggered: editor.setColorProfile("display-p3", false) }
+            MenuSeparator {}
+            Item_ {
+                text: editor.colorProfile === "srgb" ? qsTr("Convert colors to Display P3") : qsTr("Convert colors to sRGB")
+                onTriggered: editor.setColorProfile(editor.colorProfile === "srgb" ? "display-p3" : "srgb", true)
+            }
+        }
         MenuSeparator {}
         Item_ { text: qsTr("Place image / SVG…"); shortcut: "Ctrl+Shift+K"; onTriggered: root.importRequested() }
         Item_ { text: qsTr("Export…"); shortcut: "Ctrl+Shift+E"; onTriggered: root.exportRequested() }
@@ -46,6 +98,8 @@ Menu {
         MenuSeparator {}
         Item_ { text: qsTr("Select all"); shortcut: "Ctrl+A"; onTriggered: editor.selectAll() }
         Item_ { text: qsTr("Select none"); shortcut: "Esc"; onTriggered: editor.selectNone() }
+        Item_ { text: qsTr("Select matching layers"); shortcut: "Ctrl+Alt+A"; onTriggered: editor.selectSame("matching") }
+        Item_ { text: qsTr("Find and replace…"); shortcut: "Ctrl+F"; onTriggered: root.findRequested() }
     }
     Menu {
         title: qsTr("View")
@@ -58,6 +112,7 @@ Menu {
         Item_ { text: (editor.outlines ? "✓ " : "") + qsTr("Outlines"); shortcut: "Ctrl+Y"; onTriggered: editor.outlines = !editor.outlines }
         Item_ { text: (editor.showGrids ? "✓ " : "") + qsTr("Layout grids"); onTriggered: editor.showGrids = !editor.showGrids }
         Item_ { text: (editor.snapToPixels ? "✓ " : "") + qsTr("Snap to pixel grid"); onTriggered: editor.snapToPixels = !editor.snapToPixels }
+        Item_ { text: (editor.rulers ? "✓ " : "") + qsTr("Rulers"); shortcut: "Shift+R"; onTriggered: editor.rulers = !editor.rulers }
     }
     Menu {
         title: qsTr("Object")
@@ -82,6 +137,8 @@ Menu {
         Item_ { text: qsTr("Flip vertical"); shortcut: "Shift+V"; onTriggered: editor.flip(false) }
         Item_ { text: qsTr("Rotate 90° right"); onTriggered: editor.rotateSelection(90) }
         Item_ { text: qsTr("Rotate 90° left"); onTriggered: editor.rotateSelection(-90) }
+        Item_ { text: qsTr("Scale tool"); shortcut: "K"; onTriggered: editor.tool = "scale" }
+        Item_ { text: qsTr("Pick color"); shortcut: "I"; onTriggered: editor.pickColor() }
         MenuSeparator {}
         Item_ { text: qsTr("Union"); onTriggered: editor.booleanOp("union") }
         Item_ { text: qsTr("Subtract"); onTriggered: editor.booleanOp("subtract") }

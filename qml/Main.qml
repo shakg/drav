@@ -59,6 +59,9 @@ ApplicationWindow {
                             onOpenRequested: openDialog.open()
                             onSaveAsRequested: saveDialog.open()
                             onImportRequested: importDialog.open()
+                            onVersionsRequested: versionsWindow.show()
+                            onFindRequested: findBar.show()
+                            onConsoleRequested: scriptConsole.show()
                             onExportRequested: { exportDialog.currentFile = "file:///" + editor.suggestedExportName("PNG"); exportDialog.open() }
                         }
                     }
@@ -103,6 +106,12 @@ ApplicationWindow {
                         spacing: 0
                         PagesList { Layout.fillWidth: true }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.panelBorder }
+                        TextBox {
+                            Layout.fillWidth: true
+                            Layout.margins: 6
+                            placeholder: qsTr("Search layers")
+                            onTextChanged: editor.layers.filter = text
+                        }
                         LayersPanel { Layout.fillWidth: true; Layout.fillHeight: true }
                     }
                     AssetsPanel { }
@@ -122,6 +131,13 @@ ApplicationWindow {
                 focus: true
                 Component.onCompleted: forceActiveFocus()
                 onContextMenuRequested: (x, y) => contextMenu.popup(canvas, x, y)
+            }
+            FindBar {
+                id: findBar
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: editor.rulers ? 28 : 10
+                z: 5
             }
             Toolbar {
                 onImportRequested: importDialog.open()
@@ -158,7 +174,20 @@ ApplicationWindow {
                     Layout.preferredHeight: 48
                     Layout.leftMargin: 16
                     Layout.rightMargin: 8
-                    Text { text: qsTr("Design"); color: Theme.text; font.pixelSize: Theme.fontSize; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                    Repeater {
+                        model: [qsTr("Design"), qsTr("Inspect")]
+                        Text {
+                            required property string modelData
+                            required property int index
+                            text: modelData
+                            color: rightTabs.currentIndex === index ? Theme.text : Theme.textDim
+                            font.pixelSize: Theme.fontSize
+                            font.weight: rightTabs.currentIndex === index ? Font.DemiBold : Font.Normal
+                            rightPadding: 12
+                            MouseArea { anchors.fill: parent; onClicked: rightTabs.currentIndex = index }
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
                     Text {
                         text: editor.fps > 0 ? Math.round(editor.fps) + " fps" : ""
                         color: Theme.textFaint
@@ -173,8 +202,64 @@ ApplicationWindow {
                     }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.panelBorder }
-                DesignPanel { Layout.fillWidth: true; Layout.fillHeight: true }
+                StackLayout {
+                    id: rightTabs
+                    objectName: "rightTabs"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    DesignPanel { }
+                    InspectPanel { }
+                }
             }
+        }
+    }
+
+    Connections {
+        target: editor
+        function onRequestFind() { findBar.show() }
+        function onRequestBulkRename() { renameDialog.open() }
+    }
+    RenameDialog { id: renameDialog }
+    VersionsWindow { id: versionsWindow; objectName: "versionsWindow" }
+    ScriptConsole { id: scriptConsole; objectName: "scriptConsole" }
+
+    // Offer to recover work left by a crash.
+    Component.onCompleted: Qt.callLater(() => { recoveryDialog.files = editor.recoveryFiles(); if (recoveryDialog.files.length) recoveryDialog.open() })
+    Popup {
+        id: recoveryDialog
+        objectName: "recoveryDialog"
+        property var files: []
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 420
+        padding: 16
+        background: Rectangle { color: "#1e1e1e"; radius: 10; border.color: "#3a3a3a" }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Text { text: qsTr("Recover unsaved changes?"); color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("drav closed before these documents were saved.")
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSize
+            }
+            Repeater {
+                model: recoveryDialog.files
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Text { text: modelData.name; color: Theme.text; font.pixelSize: Theme.fontSize; font.weight: Font.DemiBold }
+                        Text { text: Qt.formatDateTime(modelData.time, "yyyy-MM-dd hh:mm") + (modelData.original ? " · " + modelData.original : ""); color: Theme.textFaint; font.pixelSize: 10; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                    }
+                    Button { text: qsTr("Recover"); onClicked: { editor.recover(modelData.path); recoveryDialog.close() } }
+                    Button { text: qsTr("Discard"); onClicked: { editor.discardRecovery(modelData.path); recoveryDialog.files = editor.recoveryFiles(); if (!recoveryDialog.files.length) recoveryDialog.close() } }
+                }
+            }
+            Button { Layout.alignment: Qt.AlignRight; text: qsTr("Later"); onClicked: recoveryDialog.close() }
         }
     }
 
@@ -182,9 +267,28 @@ ApplicationWindow {
     Menu {
         id: contextMenu
         MenuItem { text: qsTr("Copy"); onTriggered: editor.copy() }
+        Menu {
+            title: qsTr("Copy as")
+            enabled: editor.selectionCount > 0
+            MenuItem { text: qsTr("PNG"); onTriggered: editor.copyAs("PNG") }
+            MenuItem { text: qsTr("SVG"); onTriggered: editor.copyAs("SVG") }
+            MenuItem { text: qsTr("CSS"); onTriggered: editor.copyAs("CSS") }
+        }
         MenuItem { text: qsTr("Paste here"); onTriggered: editor.paste() }
         MenuItem { text: qsTr("Duplicate"); enabled: editor.selectionCount > 0; onTriggered: editor.duplicate() }
         MenuItem { text: qsTr("Delete"); enabled: editor.selectionCount > 0; onTriggered: editor.deleteSelection() }
+        MenuSeparator {}
+        Menu {
+            title: qsTr("Select")
+            enabled: editor.selectionCount > 0
+            MenuItem { text: qsTr("Matching layers"); onTriggered: editor.selectSame("matching") }
+            MenuItem { text: qsTr("Same fill"); onTriggered: editor.selectSame("fill") }
+            MenuItem { text: qsTr("Same stroke"); onTriggered: editor.selectSame("stroke") }
+            MenuItem { text: qsTr("Same effect"); onTriggered: editor.selectSame("effect") }
+            MenuItem { text: qsTr("Same font"); onTriggered: editor.selectSame("font") }
+            MenuItem { text: qsTr("Same instance"); onTriggered: editor.selectSame("instance") }
+        }
+        MenuItem { text: qsTr("Rename…"); enabled: editor.selectionCount > 1; onTriggered: renameDialog.open() }
         MenuSeparator {}
         MenuItem { text: qsTr("Bring to front"); enabled: editor.selectionCount > 0; onTriggered: editor.bringToFront() }
         MenuItem { text: qsTr("Send to back"); enabled: editor.selectionCount > 0; onTriggered: editor.sendToBack() }
@@ -201,6 +305,7 @@ ApplicationWindow {
         MenuItem { text: qsTr("Flatten"); enabled: editor.selectionCount > 0; onTriggered: editor.flatten() }
         MenuItem { text: qsTr("Outline stroke"); enabled: editor.selectionCount > 0; onTriggered: editor.outlineStroke() }
         MenuItem { text: qsTr("Use as mask"); enabled: editor.selectionCount > 0; onTriggered: editor.useAsMask() }
+        MenuItem { text: qsTr("Put text on path"); enabled: editor.selectionCount === 2; onTriggered: editor.attachTextToPath() }
         MenuSeparator {}
         MenuItem { text: qsTr("Show/Hide"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleVisible() }
         MenuItem { text: qsTr("Lock/Unlock"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleLocked() }
@@ -210,7 +315,7 @@ ApplicationWindow {
     FileDialog {
         id: openDialog
         title: qsTr("Open")
-        nameFilters: [qsTr("drav files (*.drav)"), qsTr("SVG (*.svg)"), qsTr("All files (*)")]
+        nameFilters: [qsTr("drav files (*.drav)"), qsTr("Figma files (*.fig)"), qsTr("SVG (*.svg)"), qsTr("All files (*)")]
         onAccepted: editor.open(selectedFile)
     }
     FileDialog {
@@ -224,7 +329,7 @@ ApplicationWindow {
     FileDialog {
         id: importDialog
         title: qsTr("Place image or SVG")
-        nameFilters: [qsTr("Images and SVG (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)")]
+        nameFilters: [qsTr("Images, SVG and Figma files (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg *.fig)")]
         onAccepted: editor.importFile(selectedFile)
     }
     FileDialog {
@@ -243,7 +348,7 @@ ApplicationWindow {
         text: qsTr("Save changes to \"%1\" before closing?").arg(editor.fileName)
         buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
         onButtonClicked: (button, role) => {
-            if (button === MessageDialog.Discard) { window.forceClose = true; window.close() }
+            if (button === MessageDialog.Discard) { editor.discardChanges(); window.forceClose = true; window.close() }
             else if (button === MessageDialog.Save) {
                 window.forceClose = true
                 if (editor.save()) window.close(); else saveDialog.open()

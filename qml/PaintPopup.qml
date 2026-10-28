@@ -10,11 +10,21 @@ Popup {
     property bool allowImage: true
     property int stopIndex: 0
     signal edited(var paint, bool live)
+    property bool waitingPick: false
+    Connections { target: root; function onClosed() { root.waitingPick = false } }
+    Connections {
+        target: editor
+        function onColorPicked(c) {
+            if (!root.waitingPick) return
+            root.waitingPick = false
+            root.setColor(Qt.rgba(c.r, c.g, c.b, root.activeColor.a), false)
+        }
+    }
     padding: 12
     width: 248
     modal: false
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: root.waitingPick ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     background: Rectangle { color: "#1e1e1e"; radius: 10; border.color: "#3a3a3a" }
 
     readonly property bool gradient: !!paint.type && paint.type.startsWith("GRADIENT")
@@ -170,6 +180,31 @@ Popup {
                     { value: "CROP", text: qsTr("Crop") }, { value: "TILE", text: qsTr("Tile") }]
                 onPicked: v => { const p = root.copy(); p.scaleMode = v; root.edited(p, false) }
             }
+            Button {
+                Layout.fillWidth: true
+                text: qsTr("Crop on canvas")
+                onClicked: { root.close(); editor.enterCrop() }
+            }
+            // Adjustments, -100..100 like Figma (stored -1..1).
+            Repeater {
+                model: [{ key: "exposure", text: qsTr("Exposure") }, { key: "contrast", text: qsTr("Contrast") },
+                    { key: "saturation", text: qsTr("Saturation") }, { key: "temperature", text: qsTr("Temperature") },
+                    { key: "tint", text: qsTr("Tint") }, { key: "highlights", text: qsTr("Highlights") },
+                    { key: "shadows", text: qsTr("Shadows") }]
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Text { text: modelData.text; color: Theme.textDim; font.pixelSize: Theme.fontSize; Layout.preferredWidth: 72 }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: -1; to: 1
+                        value: root.paint[modelData.key] || 0
+                        onMoved: { const p = root.copy(); p[modelData.key] = value; root.edited(p, true) }
+                        onPressedChanged: if (!pressed) { const p = root.copy(); p[modelData.key] = value; root.edited(p, false) }
+                    }
+                    Text { text: Math.round((root.paint[modelData.key] || 0) * 100); color: Theme.textFaint; font.pixelSize: 10; Layout.preferredWidth: 26; horizontalAlignment: Text.AlignRight }
+                }
+            }
         }
 
         ColorArea {
@@ -182,6 +217,12 @@ Popup {
         RowLayout {
             Layout.fillWidth: true
             visible: root.paint.type !== "IMAGE"
+            IconButton {
+                iconName: "pipette"
+                iconSize: 14
+                tip: qsTr("Pick a color from the canvas (I)")
+                onClicked: { root.waitingPick = true; editor.pickColor() }
+            }
             Text { text: "#"; color: Theme.textFaint; font.pixelSize: Theme.fontSize }
             TextBox {
                 Layout.fillWidth: true

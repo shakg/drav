@@ -1,5 +1,13 @@
 #include "Renderer.h"
 
+#include <include/core/SkTextBlob.h>
+
+#include <include/core/SkRSXform.h>
+
+#include <include/core/SkColorFilter.h>
+#include <include/effects/SkColorMatrix.h>
+
+#include "core/Color.h"
 #include "core/Geometry.h"
 #include "core/Text.h"
 
@@ -29,6 +37,37 @@
 #include <mutex>
 
 namespace drav {
+
+sk_sp<SkColorFilter> imageAdjustments(const Paint& p)
+{
+    // Linear part: exposure (gain), contrast around mid gray, saturation, temperature and tint.
+    SkColorMatrix m;
+    const float gain = std::pow(2.f, p.exposure * 2);
+    m.setScale(gain, gain, gain);
+    const float c = 1 + p.contrast;
+    SkColorMatrix contrast;
+    contrast.setScale(c, c, c);
+    contrast.postTranslate(0.5f * (1 - c), 0.5f * (1 - c), 0.5f * (1 - c), 0);
+    m.postConcat(contrast);
+    SkColorMatrix sat;
+    sat.setSaturation(1 + p.saturation);
+    m.postConcat(sat);
+    SkColorMatrix warm;
+    warm.setScale(1 + 0.2f * p.temperature, 1 - 0.2f * p.tint, 1 - 0.2f * p.temperature);
+    m.postConcat(warm);
+    sk_sp<SkColorFilter> f = SkColorFilters::Matrix(m);
+    if (p.highlights || p.shadows) {
+        // Tone curve: shadows move dark values, highlights move bright ones.
+        uint8_t table[256];
+        for (int i = 0; i < 256; ++i) {
+            const float v = i / 255.f;
+            float o = v + p.shadows * 0.5f * (1 - v) * (1 - v) * v * 4 + p.highlights * 0.5f * v * v * (1 - v) * 4;
+            table[i] = uint8_t(std::clamp(o, 0.f, 1.f) * 255 + 0.5f);
+        }
+        f = SkColorFilters::Table(table)->makeComposed(f);
+    }
+    return f;
+}
 
 SkBlendMode toSkBlend(BlendMode m)
 {
@@ -127,6 +166,17 @@ Renderer::Renderer(const Document& doc)
     : m_doc(doc)
 {
     registerCodecs();
+    syncColorProfile();
+}
+
+void Renderer::syncColorProfile()
+{
+    const ColorProfile p = m_doc.colorProfile();
+    if (p == m_profile && (m_cs != nullptr) == (p != ColorProfile::SRGB))
+        return;
+    m_profile = p;
+    m_cs = color::space(p);
+    clear();
 }
 
 void Renderer::setOptions(const Options& o)
@@ -175,7 +225,7 @@ skia::textlayout::Paragraph* Renderer::paragraph(NodeId id)
         float width = n.p.width;
         if (n.p.textStyle.autoResize == TextAutoResize::WidthAndHeight)
             width += 0.5f; // guard against wrapping from rounding
-        e.para = text::build(n.p, width, color);
+        e.para = text::build(n.p, width, color, m_profile);
         e.version = n.version;
     }
     return e.para.get();
@@ -188,6 +238,7 @@ sk_sp<SkPicture> Renderer::recordPage(NodeId page)
     for (NodeId c : pg.children)
         cull.join(m_doc.visualBounds(c));
     cull.outset(64, 64);
+    syncColorProfile();
     SkPictureRecorder rec;
     SkCanvas* c = rec.beginRecording(cull.isEmpty() ? SkRect::MakeWH(1, 1) : cull);
     drawChildren(c, pg);
@@ -353,7 +404,7 @@ void Renderer::drawContent(SkCanvas* c, const Node& n)
                 drawChildren(c, n);
             }
         }
-        drawStrokes(c, n, path, alpha);
+        drawStrokes(c, n, t == NodeType::Vector ? strokePath(m_doc, n.id) : path, alpha);
     }
 
     if (layer)
@@ -394,7 +445,7 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
     if (paint.type == PaintType::Solid) {
         SkColor4f col = paint.color;
         col.fA *= a;
-        out->setColor4f(col);
+        out->setColor4f(col, m_cs.get());
         return true;
     }
     if (paint.type == PaintType::Image) {
@@ -407,8 +458,14 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
         SkMatrix m;
         SkTileMode tile = SkTileMode::kDecal;
         switch (paint.scaleMode) {
-        case ImageScaleMode::Fill:
         case ImageScaleMode::Crop: {
+            // The crop rect (normalized image coordinates) fills the layer's box.
+            const SkRect src = SkRect::MakeXYWH(paint.crop.left() * iw, paint.crop.top() * ih,
+                std::max(paint.crop.width(), 1e-4f) * iw, std::max(paint.crop.height(), 1e-4f) * ih);
+            m = SkMatrix::RectToRect(src, SkRect::MakeWH(p.width, p.height));
+            break;
+        }
+        case ImageScaleMode::Fill: {
             float s = std::max(p.width / iw, p.height / ih);
             m = SkMatrix::Translate((p.width - iw * s) / 2, (p.height - ih * s) / 2);
             m.preScale(s, s);
@@ -428,6 +485,8 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
         }
         out->setShader(img->makeShader(tile, tile, SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear), &m));
         out->setAlphaf(a);
+        if (paint.hasAdjustments())
+            out->setColorFilter(imageAdjustments(paint));
         return true;
     }
     std::vector<SkColor4f> colors;
@@ -450,18 +509,18 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
     switch (paint.type) {
     case PaintType::LinearGradient: {
         SkPoint pts[2] = {{0, 0}, {1, 0}};
-        sh = SkGradientShader::MakeLinear(pts, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp, 0, &m);
+        sh = SkGradientShader::MakeLinear(pts, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp, 0, &m);
         break;
     }
     case PaintType::RadialGradient:
-        sh = SkGradientShader::MakeRadial({0, 0}, 1, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp, 0, &m);
+        sh = SkGradientShader::MakeRadial({0, 0}, 1, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp, 0, &m);
         break;
     case PaintType::AngularGradient:
-        sh = SkGradientShader::MakeSweep(0, 0, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp, 0, 360, 0, &m);
+        sh = SkGradientShader::MakeSweep(0, 0, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp, 0, 360, 0, &m);
         break;
     case PaintType::DiamondGradient: {
         SkPoint pts[2] = {{0, 0}, {1, 0}};
-        sk_sp<SkShader> grad = SkGradientShader::MakeLinear(pts, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp);
+        sk_sp<SkShader> grad = SkGradientShader::MakeLinear(pts, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp);
         SkRuntimeEffect::ChildPtr children[] = {grad};
         if (auto eff = diamondEffect())
             sh = eff->makeShader(nullptr, children, &m);
@@ -487,8 +546,69 @@ void Renderer::drawFills(SkCanvas* c, const Node& n, const SkPath& path, float e
     }
 }
 
+void Renderer::drawTextOnPath(SkCanvas* c, const Node& n, float extraAlpha)
+{
+    // Glyphs placed one by one along the target shape's outline, baseline on the path.
+    const Props& p = n.p;
+    const Node& target = m_doc.at(p.textPath);
+    SkMatrix toText;
+    if (!p.transform.invert(&toText))
+        return;
+    toText.preConcat(target.p.transform);
+    const SkPath path = fillPath(m_doc, target.id).makeTransform(toText);
+    SkContourMeasureIter iter(path, false);
+    sk_sp<SkContourMeasure> cm = iter.next();
+    if (!cm)
+        return;
+    const SkFont font = text::font(p.textStyle);
+    const QByteArray utf8 = text::applyCase(p.text, p.textStyle.textCase).toUtf8();
+    const int count = font.countText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8);
+    std::vector<SkGlyphID> glyphs(count);
+    font.textToGlyphs(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, glyphs.data(), count);
+    std::vector<float> widths(count);
+    font.getWidths(glyphs.data(), count, widths.data());
+    const float spacing = p.textStyle.letterSpacing / 100.f * p.textStyle.size;
+    float total = 0;
+    for (float w : widths)
+        total += w + spacing;
+    const float len = cm->length();
+    float d = p.textPathOffset * len;
+    if (p.textStyle.alignH == TextAlignH::Center)
+        d += (len - total) / 2;
+    else if (p.textStyle.alignH == TextAlignH::Right)
+        d += len - total;
+    std::vector<SkRSXform> xf;
+    std::vector<SkGlyphID> placed;
+    for (int i = 0; i < count; ++i) {
+        const float mid = d + widths[i] / 2;
+        d += widths[i] + spacing;
+        if (mid < 0 || mid > len)
+            continue;
+        SkPoint pos;
+        SkVector tan;
+        if (!cm->getPosTan(mid, &pos, &tan))
+            continue;
+        const SkPoint origin = pos - tan * (widths[i] / 2);
+        xf.push_back(SkRSXform::Make(tan.x(), tan.y(), origin.x(), origin.y()));
+        placed.push_back(glyphs[i]);
+    }
+    if (placed.empty())
+        return;
+    auto blob = SkTextBlob::MakeFromRSXform(placed.data(), placed.size() * sizeof(SkGlyphID), xf.data(), font,
+        SkTextEncoding::kGlyphID);
+    for (const Paint& f : p.fills) {
+        SkPaint paint;
+        if (makePaint(f, p, extraAlpha, &paint))
+            c->drawTextBlob(blob, 0, 0, paint);
+    }
+}
+
 void Renderer::drawText(SkCanvas* c, const Node& n, float extraAlpha)
 {
+    if (n.p.textPath && m_doc.isAttached(n.p.textPath) && m_doc.at(n.p.textPath).parent == n.parent) {
+        drawTextOnPath(c, n, extraAlpha);
+        return;
+    }
     auto* para = paragraph(n.id);
     const float y = text::verticalOffset(n.p, para->getHeight());
     const int visible = countVisible(n.p.fills);
@@ -530,8 +650,15 @@ void Renderer::drawStrokes(SkCanvas* c, const Node& n, const SkPath& path, float
         SkPaint sp;
         if (!makePaint(s, p, extraAlpha, &sp))
             continue;
+        const float weight = s.strokeWeight > 0 ? s.strokeWeight : p.stroke.weight;
+        if (!p.stroke.widthProfile.empty()) {
+            // Variable width: fill the profiled outline (always centered on the path).
+            sp.setStyle(SkPaint::kFill_Style);
+            c->drawPath(variableWidthStroke(path, weight, p.stroke.widthProfile), sp);
+            continue;
+        }
         sp.setStyle(SkPaint::kStroke_Style);
-        sp.setStrokeWidth(align == StrokeAlign::Center ? p.stroke.weight : p.stroke.weight * 2);
+        sp.setStrokeWidth(align == StrokeAlign::Center ? weight : weight * 2);
         sp.setStrokeJoin(p.stroke.join == StrokeJoin::Round ? SkPaint::kRound_Join
                 : p.stroke.join == StrokeJoin::Bevel        ? SkPaint::kBevel_Join
                                                             : SkPaint::kMiter_Join);
@@ -655,7 +782,7 @@ void Renderer::drawDropShadows(SkCanvas* c, const Node& n, const SkPath& path)
             c->clipPath(path, SkClipOp::kDifference, true);
         SkPaint sp;
         sp.setAntiAlias(true);
-        sp.setColor4f(e.color);
+        sp.setColor4f(e.color, m_cs.get());
         sp.setBlendMode(toSkBlend(e.blend));
         if (e.radius > 0)
             sp.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma(e.radius)));
@@ -691,7 +818,7 @@ void Renderer::drawInnerShadows(SkCanvas* c, const Node& n, const SkPath& path)
         c->clipPath(path, true);
         SkPaint sp;
         sp.setAntiAlias(true);
-        sp.setColor4f(e.color);
+        sp.setColor4f(e.color, m_cs.get());
         sp.setBlendMode(toSkBlend(e.blend));
         if (e.radius > 0)
             sp.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma(e.radius)));
@@ -708,7 +835,7 @@ void Renderer::drawGrids(SkCanvas* c, const Node& n)
         if (!g.visible)
             continue;
         SkPaint gp;
-        gp.setColor4f(g.color);
+        gp.setColor4f(g.color, m_cs.get());
         gp.setAntiAlias(false);
         const float w = n.p.width, h = n.p.height;
         if (g.kind == LayoutGrid::Kind::Grid) {

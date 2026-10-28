@@ -82,8 +82,36 @@ void LayerModel::build(std::vector<Row>& out) const
                 rec(*it, depth + 1, parentSel || isSel, inInstance || n.type() == NodeType::Instance);
     };
     const auto& top = d.at(d.currentPage()).children;
+    if (!m_filter.isEmpty()) {
+        // Search results: matching layers anywhere on the page, flat, topmost first.
+        std::function<void(NodeId, bool)> find = [&](NodeId id, bool inInstance) {
+            const Node& n = d.at(id);
+            for (auto it = n.children.rbegin(); it != n.children.rend(); ++it) {
+                const Node& c = d.at(*it);
+                const bool inst = inInstance || c.type() == NodeType::Instance;
+                if (c.p.name.contains(m_filter, Qt::CaseInsensitive)
+                    || (c.type() == NodeType::Text && c.p.text.contains(m_filter, Qt::CaseInsensitive))) {
+                    const int comp = c.type() == NodeType::Component || c.type() == NodeType::ComponentSet ? 1 : inst ? 2 : 0;
+                    out.push_back({c.id, c.p.name, c.type(), 0, false, false, c.p.visible, c.p.locked, sel.count(c.id) > 0,
+                        false, comp, c.p.isMask, int(c.p.layout.mode)});
+                }
+                find(*it, inst);
+            }
+        };
+        find(d.currentPage(), false);
+        return;
+    }
     for (auto it = top.rbegin(); it != top.rend(); ++it)
         rec(*it, 0, false, false);
+}
+
+void LayerModel::setFilter(const QString& f)
+{
+    if (f == m_filter)
+        return;
+    m_filter = f;
+    emit filterChanged();
+    sync();
 }
 
 void LayerModel::sync()

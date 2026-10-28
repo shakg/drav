@@ -21,3 +21,4 @@ dependencies:
   - libwebp
   - expat
   - zlib
+  - zstd

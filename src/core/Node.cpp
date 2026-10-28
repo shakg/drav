@@ -6,7 +6,7 @@ namespace drav {
 
 static const char* const kTypeNames[] = {
     "DOCUMENT", "PAGE", "FRAME", "GROUP", "RECTANGLE", "ELLIPSE", "POLYGON", "STAR",
-    "LINE", "VECTOR", "TEXT", "BOOLEAN_OPERATION", "COMPONENT", "COMPONENT_SET", "INSTANCE",
+    "LINE", "VECTOR", "TEXT", "BOOLEAN_OPERATION", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION",
 };
 
 const char* nodeTypeName(NodeType t) { return kTypeNames[int(t)]; }
@@ -26,12 +26,14 @@ std::uint32_t diffOverrideMask(const Props& a, const Props& b)
     if (a.visible != b.visible) m |= OvVisible;
     if (a.opacity != b.opacity) m |= OvOpacity;
     if (a.blend != b.blend) m |= OvBlend;
-    if (a.fills != b.fills) m |= OvFills;
-    if (a.strokes != b.strokes) m |= OvStrokes;
+    if (a.fills != b.fills || a.fillStyle != b.fillStyle) m |= OvFills;
+    if (a.strokes != b.strokes || a.strokeStyle != b.strokeStyle) m |= OvStrokes;
     if (a.stroke != b.stroke) m |= OvStrokeStyle;
-    if (a.effects != b.effects) m |= OvEffects;
-    if (a.text != b.text) m |= OvText;
-    if (a.textStyle != b.textStyle) m |= OvTextStyle;
+    if (a.effects != b.effects || a.effectStyle != b.effectStyle) m |= OvEffects;
+    if (a.text != b.text || a.textRuns != b.textRuns || a.paragraphs != b.paragraphs) m |= OvText;
+    if (a.textStyle != b.textStyle || a.textStyleId != b.textStyleId) m |= OvTextStyle;
+    if (a.bindings != b.bindings) m |= OvBindings;
+    if (a.propValues != b.propValues) m |= OvPropValues;
     if (a.corners != b.corners || a.cornerSmoothing != b.cornerSmoothing) m |= OvCorners;
     if (a.layout != b.layout || a.clipsContent != b.clipsContent) m |= OvLayout;
     if (a.width != b.width || a.height != b.height) m |= OvSize;
@@ -45,12 +47,30 @@ void copyGroups(Props& dst, const Props& src, std::uint32_t mask)
     if (mask & OvVisible) dst.visible = src.visible;
     if (mask & OvOpacity) dst.opacity = src.opacity;
     if (mask & OvBlend) dst.blend = src.blend;
-    if (mask & OvFills) dst.fills = src.fills;
-    if (mask & OvStrokes) dst.strokes = src.strokes;
+    if (mask & OvFills) {
+        dst.fills = src.fills;
+        dst.fillStyle = src.fillStyle;
+    }
+    if (mask & OvStrokes) {
+        dst.strokes = src.strokes;
+        dst.strokeStyle = src.strokeStyle;
+    }
     if (mask & OvStrokeStyle) dst.stroke = src.stroke;
-    if (mask & OvEffects) dst.effects = src.effects;
-    if (mask & OvText) dst.text = src.text;
-    if (mask & OvTextStyle) dst.textStyle = src.textStyle;
+    if (mask & OvEffects) {
+        dst.effects = src.effects;
+        dst.effectStyle = src.effectStyle;
+    }
+    if (mask & OvText) {
+        dst.text = src.text;
+        dst.textRuns = src.textRuns;
+        dst.paragraphs = src.paragraphs;
+    }
+    if (mask & OvTextStyle) {
+        dst.textStyle = src.textStyle;
+        dst.textStyleId = src.textStyleId;
+    }
+    if (mask & OvBindings) dst.bindings = src.bindings;
+    if (mask & OvPropValues) dst.propValues = src.propValues;
     if (mask & OvCorners) {
         dst.corners = src.corners;
         dst.cornerSmoothing = src.cornerSmoothing;
@@ -72,9 +92,10 @@ void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRo
 {
     std::uint32_t mask = ~ov;
     if (isRoot)
-        mask &= ~(OvComponent | OvVariantProps);
+        mask &= ~(OvComponent | OvVariantProps | OvPropValues);
     copyGroups(dst, src, mask);
     dst.grids = src.grids;
+    dst.gridStyle = src.gridStyle;
     dst.arcStart = src.arcStart;
     dst.arcSweep = src.arcSweep;
     dst.arcInner = src.arcInner;
@@ -89,6 +110,8 @@ void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRo
         dst.layoutChild = src.layoutChild;
         dst.exports = src.exports;
         dst.constrainProportions = src.constrainProportions;
+        dst.variableModes = src.variableModes;
+        dst.propRefs = src.propRefs;
     }
 }
 
@@ -96,6 +119,13 @@ void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRo
 
 SkPath VectorData::toPath() const
 {
+    if (isNetwork()) {
+        SkPathBuilder b(fill);
+        for (const NetRegion& r : regions)
+            for (const auto& loop : r.loops)
+                b.addPath(loopPath(loop));
+        return b.detach();
+    }
     SkPathBuilder b(fill);
     for (const Contour& c : contours) {
         if (c.pts.empty())
@@ -119,6 +149,12 @@ SkPath VectorData::toPath() const
 
 void VectorData::transform(const SkMatrix& m)
 {
+    for (NetVertex& v : vertices)
+        v.p = m.mapPoint(v.p);
+    for (NetSegment& sg : segments) {
+        sg.ca = m.mapPoint(sg.ca);
+        sg.cb = m.mapPoint(sg.cb);
+    }
     for (Contour& c : contours)
         for (Anchor& a : c.pts) {
             a.p = m.mapPoint(a.p);
@@ -129,7 +165,10 @@ void VectorData::transform(const SkMatrix& m)
 
 SkRect VectorData::bounds() const
 {
-    return toPath().computeTightBounds();
+    SkRect b = toPath().computeTightBounds();
+    if (isNetwork())
+        b.join(strokePath().computeTightBounds());
+    return b;
 }
 
 } // namespace drav

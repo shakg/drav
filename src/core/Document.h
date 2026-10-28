@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Library.h"
 #include "Node.h"
 
 #include <QByteArray>
@@ -66,6 +67,7 @@ public:
     void redo();
     bool isDirty() const { return m_savedUndoDepth != (int)m_undo.size() || m_dirtyNoUndo; }
     void markSaved();
+    void markDirty() { m_dirtyNoUndo = true; emit undoStateChanged(); }
 
     // ---- selection (not undoable itself, but restored by undo) ----
     const std::vector<NodeId>& selection() const { return m_selection; }
@@ -83,6 +85,15 @@ public:
     NodeId mainOf(NodeId id) const;         // main-component counterpart (sourceId or componentId)
     bool isInsideInstance(NodeId id) const;
     std::vector<NodeId> instancesOf(NodeId component) const;
+    // Component property definitions visible from a component, component set or instance
+    // (a variant also sees its set's definitions).
+    std::vector<const ComponentProp*> propDefs(NodeId id) const;
+    // Nearest ancestor (instance, component or set) that defines the property for this layer.
+    NodeId propOwner(NodeId id, const QString& propId) const;
+    // Value of a property at its owner: an instance's value, else the definition's default.
+    QString propValue(NodeId owner, const QString& propId) const;
+    // Current value of a property-driven field of a layer, in the property's string form.
+    static QString fieldValue(const Props& p, const QString& field);
     std::vector<NodeId> allComponents() const;
     template <typename F> void walk(NodeId id, F&& f) const
     {
@@ -98,6 +109,16 @@ public:
     void setPosition(NodeId id, float x, float y); // parent-space translation
     void setWorldTransform(NodeId id, const SkMatrix& world);
     void fitGroup(NodeId id);
+    // Scales a node and its subtree by `f` (sizes, positions of children, strokes, radii, effects,
+    // text sizes, layout spacing, vectors); the node's own position is left to the caller.
+    void scaleDeep(NodeId id, float f);
+
+    // ---- styles and variables ----
+    const Library& library() const;
+    ColorProfile colorProfile() const { return at(m_root).p.colorProfile; }
+    std::shared_ptr<const Library> libraryPtr() const { return at(m_root).p.library; }
+    // Inside a transaction: a fresh copy of the library to modify (undo keeps the old one).
+    Library& editLibrary();
 
     // ---- images ----
     QString addImage(const QByteArray& encoded); // returns content hash
@@ -155,7 +176,13 @@ private:
     void syncChildren(NodeId instNode, NodeId mainNode);
     NodeId cloneFromMain(NodeId mainNode, NodeId parent, int index);
     void markOverrides();
+    void resolveBindings();
+    void applyComponentProps();
+    void applyComponentProps(NodeId id);
+    bool applyPropRefs(NodeId id); // returns true if a nested instance was swapped
+    void computePropRefs(NodeId id, Props& next) const;
     void runLayout();
+    void syncTextPaths();
 
     std::unordered_map<NodeId, std::unique_ptr<Node>> m_nodes;
     NodeId m_root = kNoNode;

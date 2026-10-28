@@ -17,6 +17,10 @@ Rectangle {
     property real displayScale: 1 // e.g. 100 for opacity shown in percent
     property string emptyText: "Mixed" // shown when value is undefined
     readonly property bool mixed: value === undefined || value === null
+    // Bindable property key (see core/Variables.h). Shows a variable button and the bound variable.
+    property string bindKey
+    readonly property string boundVar: bindKey.length && editor.props.bindings ? (editor.props.bindings[bindKey] || "") : ""
+    readonly property var boundInfo: boundVar.length ? (editor.library.variables.find(v => v.id === boundVar) || null) : null
     signal committed(real value)
     signal live(real value)
     signal liveEnd()
@@ -98,8 +102,63 @@ Rectangle {
         }
     }
 
+    // Bound variable pill replaces the number.
+    Rectangle {
+        visible: root.boundVar.length > 0
+        z: 2
+        anchors.left: lead.right
+        anchors.right: parent.right
+        anchors.rightMargin: 3
+        anchors.verticalCenter: parent.verticalCenter
+        height: 20
+        radius: 4
+        color: Theme.hover
+        border.color: Theme.panelBorder
+        Text {
+            anchors.fill: parent
+            anchors.leftMargin: 6
+            anchors.rightMargin: 4
+            verticalAlignment: Text.AlignVCenter
+            text: root.boundInfo ? root.boundInfo.name.split("/").pop() : qsTr("Missing")
+            color: Theme.text
+            font.pixelSize: Theme.fontSize
+            font.family: Theme.fontFamily
+            elide: Text.ElideRight
+        }
+        MouseArea { anchors.fill: parent; onClicked: root.openPicker() }
+    }
+    IconButton {
+        z: 3
+        visible: root.bindKey.length > 0 && root.boundVar.length === 0 && hover.hovered && !input.activeFocus
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        width: 20
+        height: 20
+        iconName: "variable"
+        iconSize: 12
+        tip: qsTr("Apply variable")
+        onClicked: root.openPicker()
+    }
+    function openPicker() {
+        pickerLoader.active = true
+        pickerLoader.item.current = root.boundVar
+        pickerLoader.item.open()
+    }
+    Loader {
+        id: pickerLoader
+        active: false
+        y: root.height + 2
+        sourceComponent: Component {
+            VariablePicker {
+                varType: "FLOAT"
+                onPicked: id => editor.bindVariable(root.bindKey, id)
+            }
+        }
+    }
+
     TextInput {
         id: input
+        visible: root.boundVar.length === 0
         anchors.left: lead.right
         anchors.right: parent.right
         anchors.rightMargin: 6

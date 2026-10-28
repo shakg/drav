@@ -1,6 +1,10 @@
 #include "Editor.h"
 
+#include "PropMaps.h"
+#include "Tools.h"
+
 #include "core/Text.h"
+#include "core/Variables.h"
 
 #include <QColor>
 
@@ -8,148 +12,21 @@
 
 namespace drav {
 
+using namespace maps;
+
 namespace {
 
-QColor toQColor(SkColor4f c) { return QColor::fromRgbF(c.fR, c.fG, c.fB, c.fA); }
-SkColor4f toSk(const QVariant& v)
+std::uint32_t runField(const QString& k)
 {
-    QColor c = v.value<QColor>();
-    if (!c.isValid())
-        c = QColor(v.toString());
-    return {float(c.redF()), float(c.greenF()), float(c.blueF()), float(c.alphaF())};
+    static const QHash<QString, std::uint32_t> m = {{QStringLiteral("fontFamily"), RunFamily},
+        {QStringLiteral("fontWeight"), RunWeight}, {QStringLiteral("italic"), RunItalic},
+        {QStringLiteral("fontSize"), RunSize}, {QStringLiteral("letterSpacing"), RunLetterSpacing},
+        {QStringLiteral("decoration"), RunDecoration}, {QStringLiteral("textCase"), RunCase},
+        {QStringLiteral("fills"), RunFill}, {QStringLiteral("link"), RunLink}};
+    return m.value(k, 0);
 }
 
-template <typename E, size_t N> QString enumName(E v, const char* const (&names)[N])
-{
-    size_t i = size_t(v);
-    return i < N ? QString::fromLatin1(names[i]) : QString();
-}
-template <typename E, size_t N> E enumValue(const QVariant& v, const char* const (&names)[N], E def)
-{
-    const QString s = v.toString();
-    for (size_t i = 0; i < N; ++i)
-        if (s == QLatin1String(names[i]))
-            return E(i);
-    return def;
-}
-
-const char* const kPaintTypes[] = {"SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "IMAGE"};
-const char* const kScaleModes[] = {"FILL", "FIT", "CROP", "TILE"};
-const char* const kBlends[] = {"PASS_THROUGH", "NORMAL", "DARKEN", "MULTIPLY", "COLOR_BURN", "LIGHTEN", "SCREEN",
-    "COLOR_DODGE", "OVERLAY", "SOFT_LIGHT", "HARD_LIGHT", "DIFFERENCE", "EXCLUSION", "HUE", "SATURATION", "COLOR",
-    "LUMINOSITY"};
-const char* const kAligns[] = {"INSIDE", "CENTER", "OUTSIDE"};
-const char* const kCaps[] = {"NONE", "ROUND", "SQUARE", "LINE_ARROW", "TRIANGLE_ARROW", "CIRCLE_FILLED", "DIAMOND_FILLED"};
-const char* const kJoins[] = {"MITER", "BEVEL", "ROUND"};
-const char* const kEffects[] = {"DROP_SHADOW", "INNER_SHADOW", "LAYER_BLUR", "BACKGROUND_BLUR"};
-const char* const kConsH[] = {"LEFT", "RIGHT", "LEFT_RIGHT", "CENTER", "SCALE"};
-const char* const kConsV[] = {"TOP", "BOTTOM", "TOP_BOTTOM", "CENTER", "SCALE"};
-const char* const kLayoutModes[] = {"NONE", "HORIZONTAL", "VERTICAL"};
-const char* const kLayoutAligns[] = {"MIN", "CENTER", "MAX", "SPACE_BETWEEN", "BASELINE"};
-const char* const kSizing[] = {"FIXED", "HUG", "FILL"};
-const char* const kTextH[] = {"LEFT", "CENTER", "RIGHT", "JUSTIFIED"};
-const char* const kTextV[] = {"TOP", "CENTER", "BOTTOM"};
-const char* const kAutoResize[] = {"NONE", "HEIGHT", "WIDTH_AND_HEIGHT", "TRUNCATE"};
-const char* const kCase[] = {"ORIGINAL", "UPPER", "LOWER", "TITLE"};
-const char* const kDeco[] = {"NONE", "UNDERLINE", "STRIKETHROUGH"};
-const char* const kBool[] = {"UNION", "SUBTRACT", "INTERSECT", "EXCLUDE"};
-const char* const kGridKinds[] = {"GRID", "COLUMNS", "ROWS"};
-
-QVariantMap paintToMap(const Paint& p)
-{
-    QVariantList stops;
-    for (const ColorStop& s : p.stops)
-        stops << QVariantMap{{QStringLiteral("pos"), s.pos}, {QStringLiteral("color"), toQColor(s.color)}};
-    return {
-        {QStringLiteral("type"), enumName(p.type, kPaintTypes)},
-        {QStringLiteral("color"), toQColor(p.color)},
-        {QStringLiteral("opacity"), p.opacity},
-        {QStringLiteral("visible"), p.visible},
-        {QStringLiteral("blend"), enumName(p.blend, kBlends)},
-        {QStringLiteral("stops"), stops},
-        {QStringLiteral("start"), QVariantList{p.gradStart.x(), p.gradStart.y()}},
-        {QStringLiteral("end"), QVariantList{p.gradEnd.x(), p.gradEnd.y()}},
-        {QStringLiteral("gradWidth"), p.gradWidth},
-        {QStringLiteral("image"), p.imageHash},
-        {QStringLiteral("scaleMode"), enumName(p.scaleMode, kScaleModes)},
-        {QStringLiteral("imageScale"), p.imageScale},
-    };
-}
-
-Paint paintFromMap(const QVariantMap& m)
-{
-    Paint p;
-    p.type = enumValue(m.value(QStringLiteral("type")), kPaintTypes, PaintType::Solid);
-    if (m.contains(QStringLiteral("color")))
-        p.color = toSk(m.value(QStringLiteral("color")));
-    p.opacity = m.value(QStringLiteral("opacity"), 1.0).toFloat();
-    p.visible = m.value(QStringLiteral("visible"), true).toBool();
-    p.blend = enumValue(m.value(QStringLiteral("blend")), kBlends, BlendMode::Normal);
-    const QVariantList stops = m.value(QStringLiteral("stops")).toList();
-    if (!stops.isEmpty()) {
-        p.stops.clear();
-        for (const QVariant& s : stops) {
-            QVariantMap sm = s.toMap();
-            p.stops.push_back({sm.value(QStringLiteral("pos")).toFloat(), toSk(sm.value(QStringLiteral("color")))});
-        }
-        std::sort(p.stops.begin(), p.stops.end(), [](const ColorStop& a, const ColorStop& b) { return a.pos < b.pos; });
-    }
-    auto pt = [&](const char* k, SkPoint def) {
-        QVariantList l = m.value(QLatin1String(k)).toList();
-        return l.size() == 2 ? SkPoint{l[0].toFloat(), l[1].toFloat()} : def;
-    };
-    p.gradStart = pt("start", p.gradStart);
-    p.gradEnd = pt("end", p.gradEnd);
-    p.gradWidth = m.value(QStringLiteral("gradWidth"), 1.0).toFloat();
-    p.imageHash = m.value(QStringLiteral("image")).toString();
-    p.scaleMode = enumValue(m.value(QStringLiteral("scaleMode")), kScaleModes, ImageScaleMode::Fill);
-    p.imageScale = m.value(QStringLiteral("imageScale"), 1.0).toFloat();
-    return p;
-}
-
-QVariantList paintsToList(const std::vector<Paint>& v)
-{
-    QVariantList l;
-    for (const Paint& p : v)
-        l << paintToMap(p);
-    return l;
-}
-
-std::vector<Paint> paintsFromList(const QVariant& v)
-{
-    std::vector<Paint> out;
-    for (const QVariant& p : v.toList())
-        out.push_back(paintFromMap(p.toMap()));
-    return out;
-}
-
-QVariantMap effectToMap(const Effect& e)
-{
-    return {
-        {QStringLiteral("type"), enumName(e.type, kEffects)},
-        {QStringLiteral("visible"), e.visible},
-        {QStringLiteral("color"), toQColor(e.color)},
-        {QStringLiteral("x"), e.offset.x()},
-        {QStringLiteral("y"), e.offset.y()},
-        {QStringLiteral("radius"), e.radius},
-        {QStringLiteral("spread"), e.spread},
-        {QStringLiteral("behind"), e.showBehindTransparent},
-    };
-}
-
-Effect effectFromMap(const QVariantMap& m)
-{
-    Effect e;
-    e.type = enumValue(m.value(QStringLiteral("type")), kEffects, EffectType::DropShadow);
-    e.visible = m.value(QStringLiteral("visible"), true).toBool();
-    if (m.contains(QStringLiteral("color")))
-        e.color = toSk(m.value(QStringLiteral("color")));
-    e.offset = {m.value(QStringLiteral("x"), 0).toFloat(), m.value(QStringLiteral("y"), 4).toFloat()};
-    e.radius = m.value(QStringLiteral("radius"), 4).toFloat();
-    e.spread = m.value(QStringLiteral("spread"), 0).toFloat();
-    e.showBehindTransparent = m.value(QStringLiteral("behind"), false).toBool();
-    return e;
-}
+const char* const kLists[] = {"NONE", "BULLET", "ORDERED"};
 
 float rotationOf(const SkMatrix& m)
 {
@@ -194,10 +71,11 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     for (float f : p.stroke.dashes)
         dashes << f;
     set("dashes", dashes);
-    QVariantList effects;
-    for (const Effect& e : p.effects)
-        effects << effectToMap(e);
-    set("effects", effects);
+    QVariantList profile;
+    for (SkPoint w : p.stroke.widthProfile)
+        profile << QVariant(QVariantList{w.x(), w.y()});
+    set("widthProfile", profile);
+    set("effects", effectsToList(p.effects));
     set("constraintH", enumName(p.constraintH, kConsH));
     set("constraintV", enumName(p.constraintV, kConsV));
     set("layoutMode", enumName(p.layout.mode, kLayoutModes));
@@ -212,6 +90,11 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     set("counterAlign", enumName(p.layout.counterAlign, kLayoutAligns));
     set("strokesIncluded", p.layout.strokesIncluded);
     set("reverseZ", p.layout.reverseZ);
+    set("gridColumns", p.layout.gridColumns);
+    set("gridRows", p.layout.gridRows);
+    set("colSpan", p.layoutChild.colSpan);
+    set("rowSpan", p.layoutChild.rowSpan);
+    set("parentLayoutMode", n.parent ? enumName(d.at(n.parent).p.layout.mode, kLayoutModes) : QString());
     set("sizingH", enumName(p.layoutChild.sizingH, kSizing));
     set("sizingV", enumName(p.layoutChild.sizingV, kSizing));
     set("absolute", p.layoutChild.absolute);
@@ -225,6 +108,8 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     if (p.type == NodeType::Text) {
         const TextStyle& t = p.textStyle;
         set("characters", p.text);
+        set("textPath", qint64(p.textPath));
+        set("textPathOffset", p.textPathOffset);
         set("fontFamily", t.family);
         set("fontWeight", t.weight);
         set("italic", t.italic);
@@ -239,6 +124,24 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
         set("textCase", enumName(t.textCase, kCase));
         set("decoration", enumName(t.decoration, kDeco));
         set("maxLines", t.maxLines);
+        QVariantMap features;
+        for (auto it = t.features.begin(); it != t.features.end(); ++it)
+            features.insert(it.key(), it.value());
+        set("features", features);
+        QVariantMap axesMap;
+        for (auto it = t.axes.begin(); it != t.axes.end(); ++it)
+            axesMap.insert(it.key(), it.value());
+        set("axes", axesMap);
+        const int paras = int(p.text.count(QLatin1Char('\n'))) + 1;
+        ListType lt = p.paragraphs.empty() ? ListType::None : p.paragraphs[0].list;
+        bool mixedList = false;
+        for (int i = 1; i < paras; ++i)
+            mixedList |= (i < int(p.paragraphs.size()) ? p.paragraphs[i].list : ListType::None) != lt;
+        set("listType", mixedList ? QVariant() : enumName(lt, kLists));
+        bool runs = false;
+        for (const TextRun& r : p.textRuns)
+            runs |= (r.mask & ~RunLink) != 0;
+        set("hasRuns", runs);
     }
     if (p.type == NodeType::Ellipse) {
         set("arcStart", p.arcStart);
@@ -251,17 +154,27 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     }
     if (p.type == NodeType::BooleanOp)
         set("boolOp", enumName(p.boolOp, kBool));
-    QVariantList grids;
-    for (const LayoutGrid& g : p.grids)
-        grids << QVariantMap{{QStringLiteral("kind"), enumName(g.kind, kGridKinds)}, {QStringLiteral("count"), g.count},
-            {QStringLiteral("size"), g.size}, {QStringLiteral("gutter"), g.gutter}, {QStringLiteral("margin"), g.margin},
-            {QStringLiteral("color"), toQColor(g.color)}, {QStringLiteral("visible"), g.visible}};
-    set("grids", grids);
+    set("grids", gridsToList(p.grids));
     QVariantList exports;
     for (const ExportSetting& e : p.exports)
         exports << QVariantMap{{QStringLiteral("format"), e.format}, {QStringLiteral("scale"), e.scale},
             {QStringLiteral("suffix"), e.suffix}};
     set("exports", exports);
+
+    // Styles and variables
+    set("fillStyle", p.fillStyle);
+    set("strokeStyle", p.strokeStyle);
+    set("textStyleId", p.textStyleId);
+    set("effectStyle", p.effectStyle);
+    set("gridStyle", p.gridStyle);
+    QVariantMap bindings;
+    for (auto it = p.bindings.begin(); it != p.bindings.end(); ++it)
+        bindings.insert(it.key(), it.value());
+    set("bindings", bindings);
+    QVariantMap modes;
+    for (auto it = p.variableModes.begin(); it != p.variableModes.end(); ++it)
+        modes.insert(it.key(), it.value());
+    set("variableModes", modes);
 
     // Components
     set("isComponent", p.type == NodeType::Component);
@@ -270,6 +183,60 @@ static QVariantMap nodeProps(const Document& d, NodeId id)
     set("insideInstance", d.isInsideInstance(id));
     set("description", p.description);
     set("overrideCount", 0);
+    // Component properties
+    static const char* const kPropTypes[] = {"BOOLEAN", "TEXT", "INSTANCE_SWAP"};
+    auto defToMap = [&](const ComponentProp& c) {
+        QVariantList preferred;
+        for (auto x : c.preferred)
+            preferred << QString::number(x);
+        return QVariantMap{{QStringLiteral("id"), c.id}, {QStringLiteral("name"), c.name},
+            {QStringLiteral("type"), QString::fromLatin1(kPropTypes[int(c.type)])},
+            {QStringLiteral("default"), c.defaultValue}, {QStringLiteral("preferred"), preferred}};
+    };
+    auto swapOptions = [&](const ComponentProp& c) {
+        QVariantList opts;
+        std::vector<NodeId> ids(c.preferred.begin(), c.preferred.end());
+        for (NodeId comp : d.allComponents())
+            if (std::find(ids.begin(), ids.end(), comp) == ids.end())
+                ids.push_back(comp);
+        for (NodeId comp : ids) {
+            if (!d.isAttached(comp))
+                continue;
+            const Node& cn = d.at(comp);
+            QString name = cn.p.name;
+            if (d.at(cn.parent).type() == NodeType::ComponentSet)
+                name = d.at(cn.parent).p.name + QStringLiteral(" / ") + name;
+            opts << QVariantMap{{QStringLiteral("value"), QString::number(comp)}, {QStringLiteral("text"), name}};
+        }
+        return opts;
+    };
+    if (p.type == NodeType::Component || p.type == NodeType::ComponentSet) {
+        QVariantList defs;
+        for (const ComponentProp& c : p.componentProps)
+            defs << defToMap(c);
+        set("componentProps", defs);
+    }
+    if (!d.isInsideInstance(id) && p.type != NodeType::ComponentSet && d.componentOf(id) && d.componentOf(id) != id) {
+        QVariantList linkable;
+        for (const ComponentProp* c : d.propDefs(d.componentOf(id)))
+            linkable << defToMap(*c);
+        set("linkableProps", linkable);
+        QVariantMap refs;
+        for (auto it = p.propRefs.begin(); it != p.propRefs.end(); ++it)
+            refs.insert(it.key(), it.value());
+        set("propRefs", refs);
+    }
+    if (p.type == NodeType::Instance) {
+        QVariantList values;
+        for (const ComponentProp* c : d.propDefs(id)) {
+            QVariantMap m = defToMap(*c);
+            m.insert(QStringLiteral("value"), p.propValues.value(c->id, c->defaultValue));
+            if (c->type == ComponentPropType::InstanceSwap)
+                m.insert(QStringLiteral("options"), swapOptions(*c));
+            values << m;
+        }
+        set("instanceProps", values);
+    }
     if (p.type == NodeType::Instance) {
         const bool mainOk = d.isAttached(p.componentId);
         set("mainMissing", !mainOk);
@@ -330,6 +297,8 @@ QVariantMap Editor::props() const
         first.insert(QStringLiteral("selH"), std::round(b.height() * 100) / 100);
     }
     first.insert(QStringLiteral("sameType"), sameType);
+    if (textEditing() && sel.size() == 1)
+        textRangeProps(first);
     for (auto it = first.begin(); it != first.end(); ++it)
         out.insert(it.key(), it.value());
     return out;
@@ -343,6 +312,8 @@ void Editor::setProp(const QString& key, const QVariant& value)
         m_doc->commit();
         return;
     }
+    if (textEditing() && applyTextRange(key, value))
+        return;
     auto sel = selected();
     if (sel.empty())
         return;
@@ -385,6 +356,36 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         if (!v.toString().isEmpty())
             renameNode(qint64(id), v.toString());
         return;
+    }
+    // A direct edit replaces whatever drove the field.
+    {
+        QStringList unbind;
+        if (vars::fieldType(k, nullptr))
+            unbind << k;
+        if (k == QLatin1String("cornerRadius") || k == QLatin1String("corners"))
+            unbind << QStringLiteral("cornerRadius") << QStringLiteral("tl") << QStringLiteral("tr")
+                   << QStringLiteral("br") << QStringLiteral("bl");
+        if (k == QLatin1String("padH"))
+            unbind << QStringLiteral("padL") << QStringLiteral("padR");
+        if (k == QLatin1String("padV"))
+            unbind << QStringLiteral("padT") << QStringLiteral("padB");
+        for (const QString& b : unbind)
+            if (cur.bindings.contains(b))
+                e().bindings.remove(b);
+        static const QStringList typo = {QStringLiteral("fontFamily"), QStringLiteral("fontWeight"),
+            QStringLiteral("italic"), QStringLiteral("fontSize"), QStringLiteral("lineHeight"),
+            QStringLiteral("lineHeightPercent"), QStringLiteral("letterSpacing"), QStringLiteral("paragraphSpacing"),
+            QStringLiteral("textCase"), QStringLiteral("decoration")};
+        if (!cur.textStyleId.isEmpty() && typo.contains(k))
+            e().textStyleId.clear();
+        // Setting a character property on the whole layer replaces per-character values.
+        if (cur.type == NodeType::Text && runField(k) && k != QLatin1String("link")) {
+            bool overridden = false;
+            for (const TextRun& r : cur.textRuns)
+                overridden |= (r.mask & runField(k)) != 0;
+            if (overridden)
+                text::clearRange(e(), 0, int(cur.text.size()), runField(k));
+        }
     }
     if (k == QLatin1String("x") || k == QLatin1String("y")) {
         const bool x = k == QLatin1String("x");
@@ -444,10 +445,19 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         e().cornerSmoothing = std::clamp(f, 0.f, 1.f);
     } else if (k == QLatin1String("clipsContent")) {
         e().clipsContent = v.toBool();
-    } else if (k == QLatin1String("fills")) {
-        e().fills = paintsFromList(v);
-    } else if (k == QLatin1String("strokes")) {
-        e().strokes = paintsFromList(v);
+    } else if (k == QLatin1String("fills") || k == QLatin1String("strokes")) {
+        // Editing a styled list detaches the style; changing a bound color detaches the variable.
+        const bool fills = k == QLatin1String("fills");
+        std::vector<Paint> list = paintsFromList(v);
+        const std::vector<Paint>& old = fills ? cur.fills : cur.strokes;
+        for (size_t i = 0; i < list.size() && i < old.size(); ++i)
+            if (!list[i].colorVar.isEmpty() && list[i].colorVar == old[i].colorVar
+                && (list[i].color != old[i].color || list[i].type != PaintType::Solid))
+                list[i].colorVar.clear();
+        Props& p = e();
+        if (list != old)
+            (fills ? p.fillStyle : p.strokeStyle).clear();
+        (fills ? p.fills : p.strokes) = list;
     } else if (k == QLatin1String("strokeWeight")) {
         e().stroke.weight = std::max(0.f, f);
     } else if (k == QLatin1String("strokeAlign")) {
@@ -458,6 +468,17 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         e().stroke.startCap = enumValue(v, kCaps, StrokeCap::None);
     } else if (k == QLatin1String("endCap")) {
         e().stroke.endCap = enumValue(v, kCaps, StrokeCap::None);
+    } else if (k == QLatin1String("widthProfile")) {
+        std::vector<SkPoint> prof;
+        for (const QVariant& x : v.toList()) {
+            const QVariantList pt = x.toList();
+            if (pt.size() == 2)
+                prof.push_back({std::clamp(pt[0].toFloat(), 0.f, 1.f), std::max(0.f, pt[1].toFloat())});
+        }
+        std::sort(prof.begin(), prof.end(), [](SkPoint a, SkPoint b) { return a.x() < b.x(); });
+        e().stroke.widthProfile = prof;
+    } else if (cur.type == NodeType::Text && k == QLatin1String("textPathOffset")) {
+        e().textPathOffset = std::clamp(f, 0.f, 1.f);
     } else if (k == QLatin1String("dashes")) {
         std::vector<float> d;
         for (const QVariant& x : v.toList())
@@ -465,9 +486,12 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
                 d.push_back(x.toFloat());
         e().stroke.dashes = d;
     } else if (k == QLatin1String("effects")) {
-        std::vector<Effect> fx;
-        for (const QVariant& x : v.toList())
-            fx.push_back(effectFromMap(x.toMap()));
+        std::vector<Effect> fx = effectsFromList(v);
+        if (fx != cur.effects)
+            e().effectStyle.clear();
+        for (size_t i = 0; i < fx.size() && i < cur.effects.size(); ++i)
+            if (!fx[i].colorVar.isEmpty() && fx[i].colorVar == cur.effects[i].colorVar && fx[i].color != cur.effects[i].color)
+                fx[i].colorVar.clear();
         e().effects = fx;
     } else if (k == QLatin1String("constraintH")) {
         e().constraintH = enumValue(v, kConsH, ConstraintH::Left);
@@ -506,6 +530,14 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         e().layout.strokesIncluded = v.toBool();
     } else if (k == QLatin1String("reverseZ")) {
         e().layout.reverseZ = v.toBool();
+    } else if (k == QLatin1String("gridColumns")) {
+        e().layout.gridColumns = std::clamp(v.toInt(), 1, 64);
+    } else if (k == QLatin1String("gridRows")) {
+        e().layout.gridRows = std::clamp(v.toInt(), 0, 64);
+    } else if (k == QLatin1String("colSpan")) {
+        e().layoutChild.colSpan = std::clamp(v.toInt(), 1, 64);
+    } else if (k == QLatin1String("rowSpan")) {
+        e().layoutChild.rowSpan = std::clamp(v.toInt(), 1, 64);
     } else if (k == QLatin1String("sizingH") || k == QLatin1String("sizingV")) {
         LayoutSizing s = enumValue(v, kSizing, LayoutSizing::Fixed);
         const bool h = k == QLatin1String("sizingH");
@@ -537,7 +569,35 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
     } else if (k == QLatin1String("maxH")) {
         e().layoutChild.maxH = std::max(0.f, f);
     } else if (cur.type == NodeType::Text && k == QLatin1String("characters")) {
-        e().text = v.toString();
+        Props& p = e();
+        text::splice(p, 0, int(p.text.size()), v.toString());
+    } else if (cur.type == NodeType::Text && k == QLatin1String("listType")) {
+        Props& p = e();
+        ParagraphAttr a;
+        a.list = enumValue(v, kLists, ListType::None);
+        text::setParagraphs(p, 0, int(p.text.count(QLatin1Char('\n'))), a);
+    } else if (cur.type == NodeType::Text && k == QLatin1String("fontFeature")) {
+        const QVariantMap m = v.toMap();
+        const QString tag = m.value(QStringLiteral("tag")).toString();
+        if (tag.size() == 4) {
+            Props& p = e();
+            if (m.value(QStringLiteral("value")).isNull())
+                p.textStyle.features.remove(tag);
+            else
+                p.textStyle.features.insert(tag, m.value(QStringLiteral("value")).toInt());
+            p.textStyleId.clear();
+        }
+    } else if (cur.type == NodeType::Text && k == QLatin1String("fontAxis")) {
+        const QVariantMap m = v.toMap();
+        const QString tag = m.value(QStringLiteral("tag")).toString();
+        if (tag.size() == 4 && tag != QLatin1String("wght")) {
+            Props& p = e();
+            if (m.value(QStringLiteral("value")).isNull())
+                p.textStyle.axes.remove(tag);
+            else
+                p.textStyle.axes.insert(tag, m.value(QStringLiteral("value")).toFloat());
+            p.textStyleId.clear();
+        }
     } else if (cur.type == NodeType::Text && k == QLatin1String("fontFamily")) {
         e().textStyle.family = v.toString();
     } else if (cur.type == NodeType::Text && k == QLatin1String("fontWeight")) {
@@ -589,20 +649,9 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
     } else if (k == QLatin1String("description")) {
         e().description = v.toString();
     } else if (k == QLatin1String("grids")) {
-        std::vector<LayoutGrid> grids;
-        for (const QVariant& x : v.toList()) {
-            QVariantMap gm = x.toMap();
-            LayoutGrid g;
-            g.kind = enumValue(gm.value(QStringLiteral("kind")), kGridKinds, LayoutGrid::Kind::Columns);
-            g.count = gm.value(QStringLiteral("count"), 12).toInt();
-            g.size = gm.value(QStringLiteral("size"), 10).toFloat();
-            g.gutter = gm.value(QStringLiteral("gutter"), 20).toFloat();
-            g.margin = gm.value(QStringLiteral("margin"), 0).toFloat();
-            if (gm.contains(QStringLiteral("color")))
-                g.color = toSk(gm.value(QStringLiteral("color")));
-            g.visible = gm.value(QStringLiteral("visible"), true).toBool();
-            grids.push_back(g);
-        }
+        std::vector<LayoutGrid> grids = gridsFromList(v);
+        if (grids != cur.grids)
+            e().gridStyle.clear();
         e().grids = grids;
     } else if (k == QLatin1String("exports")) {
         std::vector<ExportSetting> ex;
@@ -613,6 +662,167 @@ void Editor::applyProp(NodeId id, const QString& key, const QVariant& v)
         }
         e().exports = ex;
     }
+}
+
+bool Editor::applyTextRange(const QString& key, const QVariant& v)
+{
+    auto* tool = static_cast<TextEditTool*>(m_tool);
+    const NodeId id = tool->node();
+    if (!m_doc->isAttached(id))
+        return false;
+    const int a = tool->selStart(), b = tool->selEnd();
+    const Props& cur = m_doc->at(id).p;
+    if (key == QLatin1String("listType")) {
+        auto [first, last] = text::paragraphRange(cur.text, a, b);
+        m_doc->breakMerge();
+        m_doc->begin(tr("List"));
+        ParagraphAttr attr;
+        attr.list = enumValue(v, kLists, ListType::None);
+        text::setParagraphs(m_doc->edit(id), first, last, attr);
+        m_doc->commit();
+        return true;
+    }
+    const std::uint32_t field = runField(key);
+    if (!field || a == b)
+        return false; // caret only: the layer-wide edit applies
+    TextRun val;
+    switch (field) {
+    case RunFamily: val.family = v.toString(); break;
+    case RunWeight: val.weight = std::clamp(v.toInt(), 100, 1000); break;
+    case RunItalic: val.italic = v.toBool(); break;
+    case RunSize: val.size = std::clamp(v.toFloat(), 1.f, 2000.f); break;
+    case RunLetterSpacing: val.letterSpacing = v.toFloat(); break;
+    case RunDecoration: val.decoration = enumValue(v, kDeco, TextDecoration::None); break;
+    case RunCase: val.textCase = enumValue(v, kCase, TextCase::Original); break;
+    case RunLink: val.link = v.toString().trimmed(); break;
+    case RunFill: {
+        const auto paints = paintsFromList(v);
+        auto it = std::find_if(paints.begin(), paints.end(), [](const Paint& p) { return p.visible && p.type == PaintType::Solid; });
+        if (it == paints.end())
+            return true;
+        val.fill = it->color;
+        val.fill.fA *= it->opacity;
+        break;
+    }
+    default: return false;
+    }
+    if (!m_live)
+        m_doc->breakMerge();
+    m_doc->begin(tr("Style text"));
+    if (m_live)
+        m_doc->setMergeKey(QStringLiteral("live:") + m_liveKey);
+    if (field == RunLink && val.link.isEmpty())
+        text::clearRange(m_doc->edit(id), a, b, RunLink);
+    else
+        text::styleRange(m_doc->edit(id), a, b, field, val);
+    m_doc->commit();
+    return true;
+}
+
+void Editor::textRangeProps(QVariantMap& out) const
+{
+    auto* tool = static_cast<TextEditTool*>(m_tool);
+    const NodeId id = tool->node();
+    if (!m_doc->isAttached(id))
+        return;
+    const Props& p = m_doc->at(id).p;
+    const int a = tool->selStart(), b = tool->selEnd();
+    out.insert(QStringLiteral("textRange"), QVariantList{a, b});
+    auto [first, last] = text::paragraphRange(p.text, a, b);
+    auto listAt = [&](int i) { return i < int(p.paragraphs.size()) ? p.paragraphs[i].list : ListType::None; };
+    bool mixedList = false;
+    for (int i = first + 1; i <= last; ++i)
+        mixedList |= listAt(i) != listAt(first);
+    out.insert(QStringLiteral("listType"), mixedList ? QVariant() : enumName(listAt(first), kLists));
+    if (a == b)
+        return;
+    // Effective character style over the range; differing values show as mixed.
+    TextRun s0 = text::styleAt(p, a);
+    std::uint32_t mixed = 0;
+    for (int i = a + 1; i < b; ++i) {
+        TextRun s = text::styleAt(p, i);
+        if (s.family != s0.family) mixed |= RunFamily;
+        if (s.weight != s0.weight) mixed |= RunWeight;
+        if (s.italic != s0.italic) mixed |= RunItalic;
+        if (s.size != s0.size) mixed |= RunSize;
+        if (s.letterSpacing != s0.letterSpacing) mixed |= RunLetterSpacing;
+        if (s.decoration != s0.decoration) mixed |= RunDecoration;
+        if (s.textCase != s0.textCase) mixed |= RunCase;
+        if (s.link != s0.link) mixed |= RunLink;
+    }
+    auto put = [&](const char* k, std::uint32_t f, const QVariant& v) { out.insert(QLatin1String(k), mixed & f ? QVariant() : v); };
+    put("fontFamily", RunFamily, s0.family);
+    put("fontWeight", RunWeight, s0.weight);
+    put("italic", RunItalic, s0.italic);
+    put("fontSize", RunSize, s0.size);
+    put("letterSpacing", RunLetterSpacing, s0.letterSpacing);
+    put("decoration", RunDecoration, enumName(s0.decoration, kDeco));
+    put("textCase", RunCase, enumName(s0.textCase, kCase));
+    put("link", RunLink, s0.link);
+}
+
+QVariantList Editor::fontAxes(const QString& family, int weight, bool italic) const
+{
+    QVariantList out;
+    for (const text::Axis& a : text::axes(family, weight, italic))
+        out << QVariantMap{{QStringLiteral("tag"), a.tag}, {QStringLiteral("min"), a.min}, {QStringLiteral("max"), a.max},
+            {QStringLiteral("default"), a.def}};
+    return out;
+}
+
+QStringList Editor::missingFonts() const
+{
+    QSet<QString> used;
+    m_doc->walk(m_doc->root(), [&](const Node& n) {
+        if (n.type() == NodeType::Text) {
+            used.insert(n.p.textStyle.family);
+            for (const TextRun& r : n.p.textRuns)
+                if (r.mask & RunFamily)
+                    used.insert(r.family);
+        }
+        return true;
+    });
+    for (const Style& st : m_doc->library().styles)
+        if (st.type == StyleType::Text)
+            used.insert(st.text.family);
+    QStringList out;
+    for (const QString& f : used)
+        if (!text::hasFamily(f))
+            out << f;
+    out.sort();
+    return out;
+}
+
+void Editor::replaceFont(const QString& from, const QString& to)
+{
+    if (from == to || to.isEmpty())
+        return;
+    std::vector<NodeId> ids;
+    m_doc->walk(m_doc->root(), [&](const Node& n) {
+        if (n.type() == NodeType::Text)
+            ids.push_back(n.id);
+        return true;
+    });
+    m_doc->breakMerge();
+    m_doc->begin(tr("Replace font"));
+    for (NodeId id : ids) {
+        Props p = m_doc->at(id).p;
+        if (p.textStyle.family == from)
+            p.textStyle.family = to;
+        for (TextRun& r : p.textRuns)
+            if ((r.mask & RunFamily) && r.family == from)
+                r.family = to;
+        if (!(p == m_doc->at(id).p))
+            m_doc->edit(id) = p;
+    }
+    bool styles = false;
+    for (const Style& st : m_doc->library().styles)
+        styles |= st.type == StyleType::Text && st.text.family == from;
+    if (styles)
+        for (Style& st : m_doc->editLibrary().styles)
+            if (st.type == StyleType::Text && st.text.family == from)
+                st.text.family = to;
+    m_doc->commit();
 }
 
 } // namespace drav

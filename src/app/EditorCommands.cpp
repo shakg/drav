@@ -3,9 +3,12 @@
 #include "LayerModel.h"
 #include "Tools.h"
 
+#include "core/Color.h"
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
+#include "render/Code.h"
+#include "render/Export.h"
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -92,6 +95,106 @@ void Editor::copy()
     else
         delete mime;
     setStatus(tr("Copied %n layer(s)", nullptr, int(sel.size())));
+}
+
+void Editor::copyAs(const QString& format)
+{
+    auto sel = zSorted(*m_doc, topLevelSelection());
+    if (sel.empty())
+        return;
+    auto* mime = new QMimeData;
+    if (format == QLatin1String("CSS")) {
+        QStringList parts;
+        for (NodeId id : sel)
+            parts << code::css(*m_doc, id);
+        mime->setText(parts.join(QStringLiteral("\n\n")));
+    } else if (format == QLatin1String("SVG")) {
+        const QByteArray svgData = exporter::exportNode(*m_doc, sel.front(), exporter::Format::SVG);
+        mime->setData(QStringLiteral("image/svg+xml"), svgData);
+        mime->setText(QString::fromUtf8(svgData));
+    } else {
+        const QByteArray png = exporter::exportNode(*m_doc, sel.front(), exporter::Format::PNG, 2);
+        mime->setData(QStringLiteral("image/png"), png);
+        mime->setImageData(QImage::fromData(png, "PNG"));
+    }
+    if (auto* cb = QGuiApplication::clipboard())
+        cb->setMimeData(mime);
+    else
+        delete mime;
+    setStatus(tr("Copied as %1").arg(format));
+}
+
+QString Editor::colorProfile() const
+{
+    return QString::fromLatin1(color::profileName(m_doc->colorProfile()));
+}
+
+void Editor::setColorProfile(const QString& profile, bool convert)
+{
+    const ColorProfile from = m_doc->colorProfile(), to = color::profileFromName(profile);
+    if (from == to)
+        return;
+    std::vector<NodeId> ids;
+    m_doc->walk(m_doc->root(), [&](const Node& n) {
+        ids.push_back(n.id);
+        return true;
+    });
+    m_doc->begin(tr("Change color profile"));
+    if (convert) {
+        auto f = [&](SkColor4f& c) { c = color::convert(c, from, to); };
+        for (NodeId id : ids)
+            color::forEachColor(m_doc->edit(id), f);
+        if (m_doc->libraryPtr())
+            color::forEachColor(m_doc->editLibrary(), f);
+    }
+    m_doc->edit(m_doc->root()).colorProfile = to;
+    m_doc->commit();
+    m_renderer->clear();
+}
+
+QString Editor::inspectCode() const
+{
+    const auto& sel = m_doc->selection();
+    if (sel.empty())
+        return {};
+    QStringList parts{code::css(*m_doc, sel.front())};
+    for (NodeId c : m_doc->at(sel.front()).children)
+        parts << code::css(*m_doc, c);
+    return parts.join(QStringLiteral("\n\n"));
+}
+
+void Editor::attachTextToPath()
+{
+    auto sel = selected();
+    NodeId textId = kNoNode, shape = kNoNode;
+    for (NodeId id : sel)
+        (m_doc->at(id).type() == NodeType::Text ? textId : shape) = id;
+    if (sel.size() != 2 || !textId || !shape || isContainer(m_doc->at(shape).type()))
+        return;
+    m_doc->breakMerge();
+    m_doc->begin(tr("Text on path"));
+    if (m_doc->at(textId).parent != m_doc->at(shape).parent)
+        m_doc->move(textId, m_doc->at(shape).parent, m_doc->indexOf(shape) + 1);
+    Props& p = m_doc->edit(textId);
+    p.textPath = shape;
+    p.textPathOffset = 0;
+    p.textStyle.autoResize = TextAutoResize::None;
+    select({textId});
+    m_doc->commit();
+}
+
+void Editor::detachTextFromPath()
+{
+    m_doc->breakMerge();
+    m_doc->begin(tr("Detach text from path"));
+    for (NodeId id : selected())
+        if (m_doc->at(id).p.textPath) {
+            Props& p = m_doc->edit(id);
+            p.textPath = kNoNode;
+            p.textStyle.autoResize = TextAutoResize::WidthAndHeight;
+            p.transform = SkMatrix::Translate(p.transform.getTranslateX(), p.transform.getTranslateY());
+        }
+    m_doc->commit();
 }
 
 void Editor::cut()
@@ -323,6 +426,33 @@ void Editor::addAutoLayoutTo(NodeId frame, LayoutMode forced)
         sumH += cp.height;
     }
     const float spanX = u.width() - sumW, spanY = u.height() - sumH;
+    if (forced == LayoutMode::Grid) {
+        // Row-major order; the first row's length sets the column count.
+        auto box = [&](NodeId c) { const Props& cp = m_doc->at(c).p; return cp.transform.mapRect(SkRect::MakeWH(cp.width, cp.height)); };
+        std::sort(kids.begin(), kids.end(), [&](NodeId a, NodeId b) {
+            const SkRect ra = box(a), rb = box(b);
+            if (std::fabs(ra.centerY() - rb.centerY()) > std::min(ra.height(), rb.height()) / 2)
+                return ra.centerY() < rb.centerY();
+            return ra.left() < rb.left();
+        });
+        int cols = 0;
+        for (NodeId c : kids)
+            if (!kids.empty() && std::fabs(box(c).centerY() - box(kids.front()).centerY()) <= box(kids.front()).height() / 2)
+                ++cols;
+        for (int i = 0; i < (int)kids.size(); ++i)
+            m_doc->move(kids[i], frame, i);
+        const float w = f.p.width, h = f.p.height;
+        Props& p = m_doc->edit(frame);
+        p.layout.mode = LayoutMode::Grid;
+        p.layout.gridColumns = std::max(1, cols ? cols : 2);
+        p.layout.spacing = p.layout.counterSpacing = 10;
+        p.layout.padL = kids.empty() ? 10 : std::max(0.f, std::round(u.left()));
+        p.layout.padT = kids.empty() ? 10 : std::max(0.f, std::round(u.top()));
+        p.layout.padR = kids.empty() ? 10 : std::max(0.f, std::round(w - u.right()));
+        p.layout.padB = kids.empty() ? 10 : std::max(0.f, std::round(h - u.bottom()));
+        p.layoutChild.sizingV = LayoutSizing::Hug;
+        return;
+    }
     const bool horiz = forced == LayoutMode::None ? (kids.size() > 1 && spanX > spanY) : forced == LayoutMode::Horizontal;
     auto key = [&](NodeId c) {
         const Props& cp = m_doc->at(c).p;
@@ -436,6 +566,7 @@ void Editor::detachInstance()
             p.componentId = kNoNode;
             p.overrides = 0;
             p.sourceId = kNoNode;
+            p.propValues.clear();
         }
         // Descendants become plain layers; nested instances become top-level instances of their main.
         std::function<void(NodeId, bool)> rec = [&](NodeId n, bool inNested) {
@@ -443,6 +574,7 @@ void Editor::detachInstance()
                 const Node& cn = m_doc->at(c);
                 if (!inNested) {
                     Props& cp = m_doc->edit(c);
+                    cp.propRefs.clear(); // the properties belonged to the detached component
                     if (cn.type() == NodeType::Instance) {
                         cp.sourceId = kNoNode;
                         rec(c, true);
@@ -673,7 +805,7 @@ void Editor::outlineStroke()
             continue;
         }
         Props p = n.p;
-        SkPath outline = strokeOutline(p, fillPath(*m_doc, id));
+        SkPath outline = strokeOutline(p, strokePath(*m_doc, id));
         SkRect b = outline.computeTightBounds();
         outline.offset(-b.left(), -b.top());
         p.type = NodeType::Vector;
@@ -952,7 +1084,8 @@ QVariantList Editor::pages() const
 {
     QVariantList out;
     for (NodeId p : m_doc->pages())
-        out << QVariantMap{{QStringLiteral("id"), qint64(p)}, {QStringLiteral("name"), m_doc->at(p).p.name}};
+        if (m_doc->at(p).p.libraryPage.isEmpty()) // pages holding library imports stay hidden
+            out << QVariantMap{{QStringLiteral("id"), qint64(p)}, {QStringLiteral("name"), m_doc->at(p).p.name}};
     return out;
 }
 
@@ -1019,7 +1152,8 @@ QVariantList Editor::components() const
         out << QVariantMap{{QStringLiteral("id"), qint64(c)},
             {QStringLiteral("name"), n.p.name},
             {QStringLiteral("set"), inSet ? parent.p.name : QString()},
-            {QStringLiteral("page"), m_doc->at(m_doc->pageOf(c)).p.name}};
+            {QStringLiteral("page"), m_doc->at(m_doc->pageOf(c)).p.name},
+            {QStringLiteral("remote"), !n.p.remote.isEmpty()}};
     }
     return out;
 }
