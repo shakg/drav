@@ -2,13 +2,14 @@ import QtQuick
 import QtQuick.Shapes
 import "Icons.js" as Icons
 
-// Crisp stroked icon from Icons.js, scaled from a 24x24 grid.
+// Stroked Lucide icon from Icons.js, scaled from a 24x24 grid.
 Item {
     id: root
     property string name
     property color color: Theme.text
     property real size: 16
-    property real strokeWidth: 1.5
+    // Lucide's 2/24 stroke ratio, floored so small icons don't go faint.
+    property real strokeWidth: Math.max(1.25, size / 12)
     implicitWidth: size
     implicitHeight: size
 
