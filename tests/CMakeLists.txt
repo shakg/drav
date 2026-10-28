@@ -1,0 +1,7 @@
+qt_add_executable(tst_core tst_core.cpp)
+target_link_libraries(tst_core PRIVATE drav_core Qt6::Test)
+add_test(NAME tst_core COMMAND tst_core)
+
+qt_add_executable(tst_render tst_render.cpp)
+target_link_libraries(tst_render PRIVATE drav_render Qt6::Test)
+add_test(NAME tst_render COMMAND tst_render)
