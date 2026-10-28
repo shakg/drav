@@ -149,6 +149,7 @@ SkPath fillPath(const Document& doc, NodeId id)
     case NodeType::Component:
     case NodeType::ComponentSet:
     case NodeType::Instance:
+    case NodeType::Section:
         return smoothRect(p.width, p.height, p.corners, p.cornerSmoothing);
     case NodeType::Ellipse:
         return ellipsePath(p);

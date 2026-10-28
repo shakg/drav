@@ -362,6 +362,8 @@ private:
     void drawOverlay(SkCanvas* c);
     void drawSelection(SkCanvas* c);
     void drawFrameLabels(SkCanvas* c);
+    std::vector<NodeId> labelledFrames() const;
+    SkRect frameLabelRect(NodeId id) const; // screen space
     void drawRulers(SkCanvas* c);
     void drawPageGuides(SkCanvas* c);
     void drawMeasurements(SkCanvas* c);

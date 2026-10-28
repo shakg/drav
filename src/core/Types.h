@@ -33,6 +33,7 @@ enum class NodeType : std::uint8_t {
     Component,
     ComponentSet,
     Instance,
+    Section, // canvas organizer: holds frames, labelled, no auto layout
 };
 
 const char* nodeTypeName(NodeType t);
@@ -42,7 +43,7 @@ NodeType nodeTypeFromName(const QString& s);
 inline bool isFrameLike(NodeType t)
 {
     return t == NodeType::Frame || t == NodeType::Component || t == NodeType::ComponentSet
-        || t == NodeType::Instance;
+        || t == NodeType::Instance || t == NodeType::Section;
 }
 inline bool isContainer(NodeType t)
 {

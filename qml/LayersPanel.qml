@@ -16,7 +16,7 @@ ListView {
     function iconFor(type) {
         return ({ FRAME: "frame", GROUP: "group", RECTANGLE: "rect", ELLIPSE: "ellipse", POLYGON: "polygon", STAR: "star",
                   LINE: "line", VECTOR: "vector", TEXT: "text", BOOLEAN_OPERATION: "boolean", COMPONENT: "component",
-                  COMPONENT_SET: "component", INSTANCE: "instance" })[type] || "rect"
+                  COMPONENT_SET: "component", INSTANCE: "instance", SECTION: "section" })[type] || "rect"
     }
 
     Connections {

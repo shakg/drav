@@ -634,6 +634,34 @@ private slots:
         QVERIFY(std::abs(c.fR - c.fG) < 0.05f && std::abs(c.fG - c.fB) < 0.05f); // grayscale
     }
 
+    void sectionsAdoptAndLabel()
+    {
+        ed->setTool("frame");
+        drag({100, 100}, {200, 200});
+        ed->setTool("frame");
+        drag({300, 100}, {400, 200});
+        ed->setTool("rect");
+        drag({120, 120}, {150, 150}); // inside the first frame
+        key(Qt::Key_S, Qt::ShiftModifier);
+        QCOMPARE(ed->toolName(), QStringLiteral("section"));
+        drag({50, 50}, {450, 250});
+        const Node& sec = only();
+        QCOMPARE(sec.type(), NodeType::Section);
+        QCOMPARE(sec.children.size(), size_t(2));
+        QCOMPARE(doc().at(doc().currentPage()).children.size(), size_t(1));
+        // Frames inside keep their place on the canvas.
+        QCOMPARE(doc().worldBounds(sec.children[0]).left(), 100.f);
+        // The section's name pill selects it; clicking a frame inside selects its content, like top level.
+        click({50, 50}); // deselect
+        click({60, 60});
+        QCOMPARE(only().type(), NodeType::Section);
+        click({130, 130});
+        QCOMPARE(only().type(), NodeType::Rectangle);
+        Document d2;
+        QVERIFY(io::load(d2, io::save(doc())));
+        QCOMPARE(d2.at(sec.id).type(), NodeType::Section);
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

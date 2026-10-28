@@ -758,6 +758,14 @@ void ShapeTool::release(const InputEvent& e)
     } else {
         update(e);
     }
+    if (m_type == NodeType::Section && doc().at(m_node).parent == doc().currentPage()) {
+        // A section drawn around top-level layers takes them in.
+        const SkRect area = doc().worldBounds(m_node);
+        const auto siblings = doc().at(doc().currentPage()).children;
+        for (NodeId s : siblings)
+            if (s != m_node && area.contains(doc().worldBounds(s)))
+                ed.reparentKeepWorld(s, m_node, -1);
+    }
     doc().commit();
     ed.setTool(QStringLiteral("select"));
 }

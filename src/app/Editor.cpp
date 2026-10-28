@@ -54,6 +54,7 @@ Editor::Editor(QObject* parent)
     m_tools["select"] = std::make_unique<SelectTool>(*this);
     m_tools["hand"] = std::make_unique<HandTool>(*this);
     m_tools["frame"] = std::make_unique<ShapeTool>(*this, NodeType::Frame);
+    m_tools["section"] = std::make_unique<ShapeTool>(*this, NodeType::Section);
     m_tools["rect"] = std::make_unique<ShapeTool>(*this, NodeType::Rectangle);
     m_tools["ellipse"] = std::make_unique<ShapeTool>(*this, NodeType::Ellipse);
     m_tools["polygon"] = std::make_unique<ShapeTool>(*this, NodeType::Polygon);
@@ -534,6 +535,7 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_L: setTool(QStringLiteral("arrow")); return true;
         case Qt::Key_P: setTool(QStringLiteral("pencil")); return true;
         case Qt::Key_R: setRulers(!m_rulers); return true;
+        case Qt::Key_S: setTool(QStringLiteral("section")); return true;
         default: break;
         }
     }
@@ -690,9 +692,11 @@ NodeId Editor::hitDeepest(SkPoint page, float tolerance) const
 bool Editor::isTopLevelContainer(NodeId id) const
 {
     const Node& n = m_doc->at(id);
-    if (n.type() == NodeType::ComponentSet)
+    if (n.type() == NodeType::ComponentSet || n.type() == NodeType::Section)
         return true;
-    if (m_doc->at(n.parent).type() != NodeType::Page)
+    // Frames directly on the page or in a section behave as top-level.
+    const NodeType pt = m_doc->at(n.parent).type();
+    if (pt != NodeType::Page && pt != NodeType::Section)
         return false;
     return n.type() == NodeType::Frame || n.type() == NodeType::Component;
 }
@@ -729,18 +733,10 @@ NodeId Editor::selectableAt(SkPoint page, bool deep) const
 
 NodeId Editor::frameLabelAt(QPointF screen) const
 {
-    const SkFont font = text::uiFont(11);
-    for (NodeId id : m_doc->at(m_doc->currentPage()).children) {
-        const Node& n = m_doc->at(id);
-        if (!isFrameLike(n.type()) || !n.p.visible)
-            continue;
-        SkRect b = view().mapRect(m_doc->worldBounds(id));
-        const QByteArray name = n.p.name.toUtf8();
-        float w = font.measureText(name.constData(), name.size(), SkTextEncoding::kUTF8);
-        SkRect label = SkRect::MakeXYWH(b.left(), b.top() - 20, std::max(w, 20.f), 18);
-        if (label.contains(float(screen.x()), float(screen.y())))
-            return id;
-    }
+    const auto frames = labelledFrames();
+    for (auto it = frames.rbegin(); it != frames.rend(); ++it)
+        if (frameLabelRect(*it).contains(float(screen.x()), float(screen.y())))
+            return *it;
     return kNoNode;
 }
 
@@ -898,28 +894,63 @@ void Editor::selectRange(qint64 id)
 
 // ---------------------------------------------------------------- overlay
 
-void Editor::drawFrameLabels(SkCanvas* c)
+std::vector<NodeId> Editor::labelledFrames() const
 {
-    const SkFont font = text::uiFont(11);
-    SkPaint tp;
-    tp.setAntiAlias(true);
-    const auto& sel = m_doc->selection();
+    // Top-level frames, sections, and frames directly inside sections.
+    std::vector<NodeId> out;
     for (NodeId id : m_doc->at(m_doc->currentPage()).children) {
         const Node& n = m_doc->at(id);
         if (!isFrameLike(n.type()) || !n.p.visible)
             continue;
+        out.push_back(id);
+        if (n.type() == NodeType::Section)
+            for (NodeId c : n.children)
+                if (isFrameLike(m_doc->at(c).type()) && m_doc->at(c).p.visible)
+                    out.push_back(c);
+    }
+    return out;
+}
+
+SkRect Editor::frameLabelRect(NodeId id) const
+{
+    const SkFont font = text::uiFont(11, m_doc->at(id).type() == NodeType::Section);
+    const SkRect b = view().mapRect(m_doc->worldBounds(id));
+    const QByteArray name = m_doc->at(id).p.name.toUtf8();
+    const float w = font.measureText(name.constData(), name.size(), SkTextEncoding::kUTF8);
+    if (m_doc->at(id).type() == NodeType::Section) // pill inside the top-left corner
+        return SkRect::MakeXYWH(b.left() + 6, b.top() + 6, std::min(w + 14, std::max(b.width() - 12, 20.f)), 20);
+    return SkRect::MakeXYWH(b.left(), b.top() - 20, std::max(std::min(w, b.width()), 20.f), 18);
+}
+
+void Editor::drawFrameLabels(SkCanvas* c)
+{
+    SkPaint tp;
+    tp.setAntiAlias(true);
+    const auto& sel = m_doc->selection();
+    for (NodeId id : labelledFrames()) {
+        const Node& n = m_doc->at(id);
         SkRect b = view().mapRect(m_doc->worldBounds(id));
         if (b.right() < 0 || b.left() > m_viewport.width() || b.bottom() < 0 || b.top() > m_viewport.height() + 20)
             continue;
         const bool isSel = std::find(sel.begin(), sel.end(), id) != sel.end() || m_hover == id;
         const bool comp = n.type() == NodeType::Component || n.type() == NodeType::ComponentSet
             || n.type() == NodeType::Instance;
-        tp.setColor(comp ? kPurple : isSel ? kBlue : SkColorSetRGB(0xA0, 0xA0, 0xA0));
         const QByteArray utf8 = n.p.name.toUtf8();
-        // Clip the name to the frame width.
+        const SkRect label = frameLabelRect(id);
         c->save();
-        c->clipRect(SkRect::MakeXYWH(b.left(), b.top() - 22, std::max(b.width(), 24.f), 22));
-        c->drawSimpleText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, b.left(), b.top() - 6, font, tp);
+        c->clipRect(label);
+        if (n.type() == NodeType::Section) {
+            SkPaint bg;
+            bg.setAntiAlias(true);
+            bg.setColor(isSel ? kBlue : SkColorSetARGB(0xE6, 0x55, 0x55, 0x55));
+            c->drawRRect(SkRRect::MakeRectXY(label, 4, 4), bg);
+            tp.setColor(SK_ColorWHITE);
+            c->drawSimpleText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, label.left() + 7, label.top() + 14,
+                text::uiFont(11, true), tp);
+        } else {
+            tp.setColor(comp ? kPurple : isSel ? kBlue : SkColorSetRGB(0xA0, 0xA0, 0xA0));
+            c->drawSimpleText(utf8.constData(), utf8.size(), SkTextEncoding::kUTF8, b.left(), b.top() - 6, text::uiFont(11), tp);
+        }
         c->restore();
     }
 }
@@ -1086,6 +1117,7 @@ Props Editor::defaultProps(NodeType t) const
         {int(NodeType::Text), QStringLiteral("Text")},
         {int(NodeType::Component), QStringLiteral("Component")},
         {int(NodeType::BooleanOp), QStringLiteral("Boolean")},
+        {int(NodeType::Section), QStringLiteral("Section")},
     };
     // Number new layers per type like "Rectangle 3".
     int count = 0;
@@ -1098,6 +1130,11 @@ Props Editor::defaultProps(NodeType t) const
     switch (t) {
     case NodeType::Frame:
         p.fills = {Paint::solid(SkColors::kWhite)};
+        break;
+    case NodeType::Section:
+        p.fills = {Paint::solid({0.27f, 0.27f, 0.27f, 1})};
+        p.corners = {2, 2, 2, 2};
+        p.clipsContent = false;
         break;
     case NodeType::Rectangle:
     case NodeType::Ellipse:

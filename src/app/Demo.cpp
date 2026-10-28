@@ -213,6 +213,15 @@ void Editor::loadDemo()
     d.edit(darkCard).variableModes.insert(theme, dark);
     d.setPosition(darkCard, 0, 420);
 
+    // Both cards in a section.
+    Props section = defaultProps(NodeType::Section);
+    section.name = QStringLiteral("Cards");
+    NodeId sectionId = d.create(section, page);
+    d.resize(sectionId, 440, 900);
+    d.setPosition(sectionId, -40, -60);
+    for (NodeId c : {cardId, darkCard})
+        reparentKeepWorld(c, sectionId, -1);
+
     // ---- Shapes ----
     Props star;
     star.type = NodeType::Star;

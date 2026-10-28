@@ -6,7 +6,7 @@ namespace drav {
 
 static const char* const kTypeNames[] = {
     "DOCUMENT", "PAGE", "FRAME", "GROUP", "RECTANGLE", "ELLIPSE", "POLYGON", "STAR",
-    "LINE", "VECTOR", "TEXT", "BOOLEAN_OPERATION", "COMPONENT", "COMPONENT_SET", "INSTANCE",
+    "LINE", "VECTOR", "TEXT", "BOOLEAN_OPERATION", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION",
 };
 
 const char* nodeTypeName(NodeType t) { return kTypeNames[int(t)]; }
