@@ -389,6 +389,12 @@ QCborMap propsToCbor(const Props& p)
     }
     if (p.type == NodeType::Page)
         m[K("background")] = color(p.pageBackground);
+    if (!p.guides.empty()) {
+        QCborArray gs;
+        for (const Guide& g : p.guides)
+            gs.append(QCborArray{g.vertical, g.pos});
+        m[K("guides")] = gs;
+    }
     const QString* styleIds[] = {&p.fillStyle, &p.strokeStyle, &p.textStyleId, &p.effectStyle, &p.gridStyle};
     const char* styleKeys[] = {"fillStyle", "strokeStyle", "textStyle", "effectStyle", "gridStyle"};
     for (int i = 0; i < 5; ++i)
@@ -537,6 +543,10 @@ Props propsFromCbor(const QCborMap& m)
     }
     if (m.contains(K("background")))
         p.pageBackground = color(m.value(K("background")), p.pageBackground);
+    for (const QCborValue& gv : m.value(K("guides")).toArray()) {
+        const QCborArray a = gv.toArray();
+        p.guides.push_back({a.at(0).toBool(), float(a.at(1).toDouble())});
+    }
     p.fillStyle = str(m, "fillStyle");
     p.strokeStyle = str(m, "strokeStyle");
     p.textStyleId = str(m, "textStyle");

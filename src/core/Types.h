@@ -274,6 +274,13 @@ struct ExportSetting {
     bool operator==(const ExportSetting&) const = default;
 };
 
+// Ruler guide on a page (page coordinates).
+struct Guide {
+    bool vertical = true; // vertical line at x = pos, else horizontal at y = pos
+    float pos = 0;
+    bool operator==(const Guide&) const = default;
+};
+
 // Component properties: defined on a component or component set, linked from layers inside it,
 // set per instance. Values are strings: "true"/"false", the text, or a component's node id.
 enum class ComponentPropType : std::uint8_t { Boolean, Text, InstanceSwap };

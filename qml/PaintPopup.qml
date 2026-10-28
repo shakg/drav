@@ -10,11 +10,21 @@ Popup {
     property bool allowImage: true
     property int stopIndex: 0
     signal edited(var paint, bool live)
+    property bool waitingPick: false
+    Connections { target: root; function onClosed() { root.waitingPick = false } }
+    Connections {
+        target: editor
+        function onColorPicked(c) {
+            if (!root.waitingPick) return
+            root.waitingPick = false
+            root.setColor(Qt.rgba(c.r, c.g, c.b, root.activeColor.a), false)
+        }
+    }
     padding: 12
     width: 248
     modal: false
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: root.waitingPick ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     background: Rectangle { color: "#1e1e1e"; radius: 10; border.color: "#3a3a3a" }
 
     readonly property bool gradient: !!paint.type && paint.type.startsWith("GRADIENT")
@@ -182,6 +192,12 @@ Popup {
         RowLayout {
             Layout.fillWidth: true
             visible: root.paint.type !== "IMAGE"
+            IconButton {
+                iconName: "pipette"
+                iconSize: 14
+                tip: qsTr("Pick a color from the canvas (I)")
+                onClicked: { root.waitingPick = true; editor.pickColor() }
+            }
             Text { text: "#"; color: Theme.textFaint; font.pixelSize: Theme.fontSize }
             TextBox {
                 Layout.fillWidth: true

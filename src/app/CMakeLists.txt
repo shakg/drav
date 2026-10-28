@@ -1,6 +1,6 @@
 # Editor logic, testable without a window.
 add_library(drav_editor STATIC
-    Editor.h Editor.cpp EditorCommands.cpp EditorProps.cpp EditorLibrary.cpp EditorComponents.cpp PropMaps.h Demo.cpp
+    Editor.h Editor.cpp EditorCommands.cpp EditorProps.cpp EditorLibrary.cpp EditorComponents.cpp EditorPrecision.cpp PropMaps.h Demo.cpp
     Tools.h Tools.cpp
     LayerModel.h LayerModel.cpp
     SvgImport.h SvgImport.cpp

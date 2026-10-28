@@ -108,6 +108,9 @@ public:
     void setPosition(NodeId id, float x, float y); // parent-space translation
     void setWorldTransform(NodeId id, const SkMatrix& world);
     void fitGroup(NodeId id);
+    // Scales a node and its subtree by `f` (sizes, positions of children, strokes, radii, effects,
+    // text sizes, layout spacing, vectors); the node's own position is left to the caller.
+    void scaleDeep(NodeId id, float f);
 
     // ---- styles and variables ----
     const Library& library() const;

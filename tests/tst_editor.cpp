@@ -439,6 +439,70 @@ private slots:
         QCOMPARE(labels, (QStringList{"0:Get started", "1:Learn more"}));
     }
 
+    void rulerGuidesAndSnapping()
+    {
+        ed->setRulers(true);
+        // Drag from the left ruler: vertical guide at x = 303.
+        drag({5, 300}, {303, 300});
+        const auto& guides = doc().at(doc().currentPage()).p.guides;
+        QCOMPARE(guides.size(), size_t(1));
+        QVERIFY(guides[0].vertical);
+        QCOMPARE(guides[0].pos, 303.f);
+
+        // A moved rectangle snaps its left edge to the guide.
+        ed->setTool("rect");
+        drag({100, 100}, {200, 200});
+        drag({150, 150}, {350, 150});
+        QCOMPARE(doc().worldBounds(only().id).left(), 303.f);
+
+        // Dragging the guide back onto the ruler removes it; undo brings it back.
+        drag({303, 500}, {5, 500});
+        QCOMPARE(doc().at(doc().currentPage()).p.guides.size(), size_t(0));
+        ed->undo();
+        QCOMPARE(doc().at(doc().currentPage()).p.guides.size(), size_t(1));
+    }
+
+    void scaleSelectionAndTool()
+    {
+        ed->setTool("frame");
+        drag({100, 100}, {200, 150});
+        NodeId frame = only().id;
+        ed->setProp("strokes", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::black)}}});
+        ed->setProp("strokeWeight", 2);
+        ed->setProp("cornerRadius", 4);
+        ed->scaleSelection(2);
+        const Props& p = doc().at(frame).p;
+        QCOMPARE(p.width, 200.f);
+        QCOMPARE(p.height, 100.f);
+        QCOMPARE(p.stroke.weight, 4.f);
+        QCOMPARE(p.corners.tl, 8.f);
+        QCOMPARE(doc().worldBounds(frame).left(), 100.f);
+
+        // Scale tool: drag the bottom-right handle (300, 200) to (400, 250) = 150%.
+        ed->setTool("scale");
+        drag({300, 200}, {400, 250});
+        QCOMPARE(doc().at(frame).p.width, 300.f);
+        QCOMPARE(doc().at(frame).p.stroke.weight, 6.f);
+        ed->undo();
+        QCOMPARE(doc().at(frame).p.width, 200.f);
+    }
+
+    void eyedropperFillsSelection()
+    {
+        ed->setTool("rect");
+        drag({100, 100}, {200, 200});
+        ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::red)}}});
+        ed->setTool("rect");
+        drag({300, 100}, {400, 200});
+        NodeId b = only().id;
+        key(Qt::Key_I);
+        QCOMPARE(ed->toolName(), QStringLiteral("eyedropper"));
+        click({150, 150});
+        QCOMPARE(ed->toolName(), QStringLiteral("select"));
+        const SkColor4f c = doc().at(b).p.fills.at(0).color;
+        QVERIFY(c.fR > 0.99f && c.fG < 0.01f && c.fB < 0.01f);
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

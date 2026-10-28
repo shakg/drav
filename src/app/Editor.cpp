@@ -63,6 +63,8 @@ Editor::Editor(QObject* parent)
     m_tools["pen"] = std::make_unique<PenTool>(*this);
     m_tools["pencil"] = std::make_unique<PencilTool>(*this);
     m_tools["vectorEdit"] = std::make_unique<VectorEditTool>(*this);
+    m_tools["scale"] = std::make_unique<ScaleTool>(*this);
+    m_tools["eyedropper"] = std::make_unique<EyedropperTool>(*this);
     setTool(QStringLiteral("select"));
 
     connect(m_doc.get(), &Document::changed, this, &Editor::onDocChanged);
@@ -251,18 +253,60 @@ void Editor::onSelectionChanged()
 
 void Editor::mousePress(const InputEvent& e)
 {
+    // Rulers create guides; existing guides drag with the move tool.
+    bool vertical = false;
+    const bool ruler = m_rulers && inRuler(e.screen, &vertical);
+    const int guide = m_toolName == QLatin1String("select") ? guideAt(e.screen) : -1;
+    if (e.button == Qt::LeftButton && (ruler || guide >= 0)) {
+        m_guideDrag = {};
+        m_guideDrag.active = true;
+        m_guideDrag.index = ruler ? -1 : guide;
+        // Dragging from the top ruler makes a horizontal guide, from the left ruler a vertical one.
+        m_guideDrag.vertical = ruler ? vertical : m_doc->at(m_doc->currentPage()).p.guides[guide].vertical;
+        m_guideDrag.pos = m_guideDrag.vertical ? e.page.x() : e.page.y();
+        m_guideDrag.remove = ruler;
+        requestUpdate();
+        return;
+    }
     m_tool->press(e);
     emit cursorChanged();
 }
 
 void Editor::mouseMove(const InputEvent& e)
 {
+    m_alt = e.mods & Qt::AltModifier;
+    if (m_guideDrag.active) {
+        bool v;
+        m_guideDrag.pos = snapValue(m_guideDrag.vertical ? e.page.x() : e.page.y());
+        m_guideDrag.remove = inRuler(e.screen, &v);
+        requestUpdate();
+        return;
+    }
     m_tool->move(e);
     emit cursorChanged();
 }
 
 void Editor::mouseRelease(const InputEvent& e)
 {
+    if (m_guideDrag.active) {
+        const GuideDrag g = m_guideDrag;
+        m_guideDrag = {};
+        const NodeId page = m_doc->currentPage();
+        m_doc->breakMerge();
+        m_doc->begin(g.index < 0 ? tr("Add guide") : g.remove ? tr("Remove guide") : tr("Move guide"));
+        auto& guides = m_doc->edit(page).guides;
+        if (g.index >= 0 && g.index < int(guides.size())) {
+            if (g.remove)
+                guides.erase(guides.begin() + g.index);
+            else
+                guides[g.index].pos = g.pos;
+        } else if (!g.remove) {
+            guides.push_back({g.vertical, g.pos});
+        }
+        m_doc->commit();
+        requestUpdate();
+        return;
+    }
     m_tool->release(e);
     if (textEditing())
         emit propsChanged(); // the character selection drives the text inspector
@@ -278,6 +322,16 @@ void Editor::mouseDoubleClick(const InputEvent& e)
 
 void Editor::hover(const InputEvent& e)
 {
+    const bool alt = e.mods & Qt::AltModifier;
+    if (alt != m_alt) {
+        m_alt = alt;
+        requestUpdate();
+    }
+    const int g = m_toolName == QLatin1String("select") ? guideAt(e.screen) : -1;
+    if (g != m_guideHover) {
+        m_guideHover = g;
+        emit cursorChanged();
+    }
     m_tool->move(e);
     emit cursorChanged();
 }
@@ -294,6 +348,10 @@ bool Editor::inputMethod(QInputMethodEvent* e)
 
 bool Editor::keyRelease(QKeyEvent* e)
 {
+    if (e->key() == Qt::Key_Alt) {
+        m_alt = false;
+        requestUpdate();
+    }
     if (e->key() == Qt::Key_Space && !e->isAutoRepeat() && !m_returnTool.isEmpty()) {
         const QString back = m_returnTool;
         m_returnTool.clear();
@@ -305,6 +363,10 @@ bool Editor::keyRelease(QKeyEvent* e)
 
 bool Editor::keyPress(QKeyEvent* e)
 {
+    if (e->key() == Qt::Key_Alt && !m_alt) {
+        m_alt = true;
+        requestUpdate();
+    }
     if (m_tool->key(e)) {
         if (textEditing())
             emit propsChanged();
@@ -443,6 +505,7 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_V: flip(false); return true;
         case Qt::Key_L: setTool(QStringLiteral("arrow")); return true;
         case Qt::Key_P: setTool(QStringLiteral("pencil")); return true;
+        case Qt::Key_R: setRulers(!m_rulers); return true;
         default: break;
         }
     }
@@ -457,6 +520,8 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_L: setTool(QStringLiteral("line")); return true;
         case Qt::Key_P: setTool(QStringLiteral("pen")); return true;
         case Qt::Key_T: setTool(QStringLiteral("text")); return true;
+        case Qt::Key_K: setTool(QStringLiteral("scale")); return true;
+        case Qt::Key_I: pickColor(); m_pickForPopup = false; return true;
         default: break;
         }
         if (k >= Qt::Key_0 && k <= Qt::Key_9 && !m_doc->selection().empty()) {
@@ -528,6 +593,12 @@ bool Editor::textEditing() const { return m_toolName == QLatin1String("textEdit"
 
 int Editor::cursorShape() const
 {
+    const auto& guides = m_doc->at(m_doc->currentPage()).p.guides;
+    const int g = m_guideDrag.active ? m_guideDrag.index : m_guideHover;
+    if (m_guideDrag.active && g < 0)
+        return int(m_guideDrag.vertical ? Qt::SplitHCursor : Qt::SplitVCursor);
+    if (g >= 0 && g < int(guides.size()))
+        return int(guides[g].vertical ? Qt::SplitHCursor : Qt::SplitVCursor);
     return int(m_tool->cursor());
 }
 
@@ -907,6 +978,7 @@ void Editor::drawSelection(SkCanvas* c)
 void Editor::drawOverlay(SkCanvas* c)
 {
     const SkMatrix v = view();
+    drawPageGuides(c);
     drawFrameLabels(c);
 
     const auto& sel = m_doc->selection();
@@ -962,6 +1034,10 @@ void Editor::drawOverlay(SkCanvas* c)
         }
     }
     m_tool->drawOverlay(c);
+    if (m_alt)
+        drawMeasurements(c);
+    if (m_rulers)
+        drawRulers(c);
 }
 
 // ---------------------------------------------------------------- creation helpers

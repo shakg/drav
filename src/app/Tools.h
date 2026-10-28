@@ -153,6 +153,43 @@ private:
     bool m_created = false; // node was created by the text tool for this session
 };
 
+// Scale (K): drag a selection handle to scale layers with their strokes, effects and text.
+class ScaleTool : public Tool {
+public:
+    using Tool::Tool;
+    void press(const InputEvent& e) override;
+    void move(const InputEvent& e) override;
+    void release(const InputEvent& e) override;
+    void deactivate() override;
+    void drawOverlay(SkCanvas* c) override;
+    Qt::CursorShape cursor() const override { return m_cursor; }
+
+private:
+    int handleAt(QPointF screen) const;
+
+    bool m_active = false;
+    int m_handle = -1; // 0..7 clockwise from top-left
+    std::vector<NodeId> m_ids;
+    SkRect m_bounds{};
+    float m_factor = 1;
+    Qt::CursorShape m_cursor = Qt::CrossCursor;
+};
+
+// Eyedropper (I): samples the canvas color under the pointer.
+class EyedropperTool : public Tool {
+public:
+    using Tool::Tool;
+    void move(const InputEvent& e) override;
+    void press(const InputEvent& e) override;
+    bool key(QKeyEvent* e) override;
+    void drawOverlay(SkCanvas* c) override;
+    Qt::CursorShape cursor() const override { return Qt::CrossCursor; }
+
+private:
+    QPointF m_screen{-100, -100};
+    SkColor4f m_color = SkColors::kTransparent;
+};
+
 // Bezier pen. Also used to extend paths while editing a vector.
 class PenTool : public Tool {
 public:

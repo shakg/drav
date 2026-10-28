@@ -72,6 +72,7 @@ class Editor : public QObject {
     Q_PROPERTY(bool textEditing READ textEditing NOTIFY toolChanged)
     Q_PROPERTY(double fps READ fps NOTIFY fpsChanged)
     Q_PROPERTY(QVariantMap library READ library NOTIFY libraryChanged)
+    Q_PROPERTY(bool rulers READ rulers WRITE setRulers NOTIFY viewChanged)
 
 public:
     explicit Editor(QObject* parent = nullptr);
@@ -99,6 +100,9 @@ public:
     void setOutlines(bool on);
     bool showGrids() const { return m_renderer->options().showGrids; }
     void setShowGrids(bool on);
+    bool rulers() const { return m_rulers; }
+    void setRulers(bool on);
+    static constexpr float kRulerSize = 18; // logical px
 
     // ---- frame production (GUI thread) ----
     FrameSnapshot snapshot();
@@ -204,6 +208,14 @@ public:
     Q_INVOKABLE void renameNode(qint64 id, const QString& name);
     Q_INVOKABLE void moveNodeInTree(qint64 id, qint64 newParent, int index);
     Q_INVOKABLE void nudge(double dx, double dy);
+    // Scales the selection (and contents, strokes, effects, text) about its top-left corner.
+    Q_INVOKABLE void scaleSelection(double factor);
+    void scaleNodes(const std::vector<NodeId>& ids, float factor, SkPoint anchor);
+    // Eyedropper: the next canvas click reports a color through colorPicked() instead of filling.
+    Q_INVOKABLE void pickColor();
+    bool pickingForPopup() const { return m_pickForPopup; }
+    void finishPick(SkColor4f c, bool apply);
+    SkColor4f sampleColor(SkPoint page);
     Q_INVOKABLE void rotateSelection(double degrees);
 
     // ---- pages ----
@@ -307,6 +319,7 @@ signals:
     void fpsChanged();
     void libraryChanged();
     void requestRename(qint64 id);
+    void colorPicked(const QColor& color);
 
 private:
     void onDocChanged(bool structure);
@@ -314,6 +327,11 @@ private:
     void drawOverlay(SkCanvas* c);
     void drawSelection(SkCanvas* c);
     void drawFrameLabels(SkCanvas* c);
+    void drawRulers(SkCanvas* c);
+    void drawPageGuides(SkCanvas* c);
+    void drawMeasurements(SkCanvas* c);
+    int guideAt(QPointF screen) const;
+    bool inRuler(QPointF screen, bool* vertical) const;
     std::vector<NodeId> selected() const { return m_doc->selection(); }
     void applyProp(NodeId id, const QString& key, const QVariant& value);
     // While editing text: applies character/paragraph properties to the selected range.
@@ -352,6 +370,18 @@ private:
     int m_frameCount = 0;
     QByteArray m_internalClipboard;
     std::shared_ptr<const Library> m_lastLibrary; // held to detect library changes
+    bool m_rulers = false;
+    bool m_alt = false; // Alt held: show distances to the hovered layer
+    struct GuideDrag {
+        bool active = false;
+        int index = -1; // existing guide, or -1 for a new one from a ruler
+        bool vertical = true;
+        float pos = 0;
+        bool remove = false; // dropped back on the ruler
+    } m_guideDrag;
+    int m_guideHover = -1;
+    bool m_pickForPopup = false;
+    QString m_toolBeforePick;
 };
 
 } // namespace drav

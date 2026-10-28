@@ -1,5 +1,7 @@
 #include "Tools.h"
 
+#include <include/core/SkRRect.h>
+
 #include "core/Geometry.h"
 #include "core/Text.h"
 
@@ -279,6 +281,18 @@ void SelectTool::doMove(const InputEvent& e)
                         snapY = b;
                     }
         }
+        // Ruler guides on the page.
+        for (const Guide& g : doc().at(doc().currentPage()).p.guides)
+            for (float a : g.vertical ? mx : my) {
+                const float dd = g.pos - a;
+                if (g.vertical && std::fabs(dd) < std::fabs(bestX)) {
+                    bestX = dd;
+                    snapX = g.pos;
+                } else if (!g.vertical && std::fabs(dd) < std::fabs(bestY)) {
+                    bestY = dd;
+                    snapY = g.pos;
+                }
+            }
         if (std::fabs(bestX) <= thr)
             delta.fX += bestX;
         if (std::fabs(bestY) <= thr)
@@ -811,6 +825,161 @@ void TextTool::drawOverlay(SkCanvas* c)
     p.setColor(kBlue);
     p.setAntiAlias(true);
     c->drawRect(ed.view().mapRect(r), p);
+}
+
+// ================================================================ ScaleTool
+
+int ScaleTool::handleAt(QPointF s) const
+{
+    if (ed.doc().selection().empty())
+        return -1;
+    const SkRect r = ed.view().mapRect(ed.selectionBounds());
+    const SkPoint pts[8] = {{r.left(), r.top()}, {r.centerX(), r.top()}, {r.right(), r.top()}, {r.right(), r.centerY()},
+        {r.right(), r.bottom()}, {r.centerX(), r.bottom()}, {r.left(), r.bottom()}, {r.left(), r.centerY()}};
+    for (int i = 0; i < 8; ++i)
+        if (std::fabs(pts[i].x() - s.x()) <= 6 && std::fabs(pts[i].y() - s.y()) <= 6)
+            return i;
+    return -1;
+}
+
+void ScaleTool::press(const InputEvent& e)
+{
+    m_handle = handleAt(e.screen);
+    if (m_handle < 0) {
+        NodeId hit = ed.selectableAt(e.page, e.mods & (Qt::ControlModifier | Qt::MetaModifier));
+        ed.select(hit ? std::vector<NodeId>{hit} : std::vector<NodeId>{});
+        return;
+    }
+    m_ids = ed.topLevelSelection();
+    m_bounds = ed.selectionBounds();
+    m_factor = 1;
+    m_active = true;
+    doc().breakMerge();
+    doc().begin(QObject::tr("Scale"));
+}
+
+void ScaleTool::move(const InputEvent& e)
+{
+    if (!m_active) {
+        const int h = handleAt(e.screen);
+        m_cursor = h < 0 ? Qt::CrossCursor : (h % 4 == 0 ? Qt::SizeFDiagCursor : h % 4 == 2 ? Qt::SizeBDiagCursor
+                                                     : h % 4 == 1                    ? Qt::SizeVerCursor
+                                                                                     : Qt::SizeHorCursor);
+        return;
+    }
+    const SkRect& b = m_bounds;
+    // Anchor on the opposite side (Alt: the center); scale from the dragged side's distance.
+    const int sx = (m_handle == 2 || m_handle == 3 || m_handle == 4) ? 1 : (m_handle == 0 || m_handle == 6 || m_handle == 7) ? -1 : 0;
+    const int sy = (m_handle == 4 || m_handle == 5 || m_handle == 6) ? 1 : (m_handle == 0 || m_handle == 1 || m_handle == 2) ? -1 : 0;
+    const bool center = e.mods & Qt::AltModifier;
+    SkPoint anchor = {sx > 0 ? b.left() : sx < 0 ? b.right() : b.centerX(), sy > 0 ? b.top() : sy < 0 ? b.bottom() : b.centerY()};
+    if (center)
+        anchor = {b.centerX(), b.centerY()};
+    const float spanX = center ? b.width() / 2 : b.width(), spanY = center ? b.height() / 2 : b.height();
+    float f = 0;
+    if (sx && spanX > 0)
+        f = std::max(f, (e.page.x() - anchor.x()) * sx / spanX);
+    if (sy && spanY > 0)
+        f = std::max(f, (e.page.y() - anchor.y()) * sy / spanY);
+    f = std::max(0.01f, f);
+    if (!(e.mods & Qt::ShiftModifier))
+        f = std::max(0.01f, std::round(f * 100) / 100); // whole percents
+    m_factor = f;
+    doc().cancel();
+    doc().begin(QObject::tr("Scale"));
+    ed.scaleNodes(m_ids, f, anchor);
+    doc().updateDerived();
+    ed.requestUpdate();
+}
+
+void ScaleTool::release(const InputEvent&)
+{
+    if (!m_active)
+        return;
+    m_active = false;
+    doc().commit();
+    ed.requestUpdate();
+}
+
+void ScaleTool::deactivate()
+{
+    if (m_active) {
+        m_active = false;
+        doc().commit();
+    }
+}
+
+void ScaleTool::drawOverlay(SkCanvas* c)
+{
+    if (!m_active)
+        return;
+    const SkRect r = ed.view().mapRect(ed.selectionBounds());
+    const QByteArray label = (QString::number(std::round(m_factor * 1000) / 10) + QLatin1Char('%')).toUtf8();
+    const SkFont font = text::uiFont(11, true);
+    const float tw = font.measureText(label.constData(), label.size(), SkTextEncoding::kUTF8);
+    SkRect pill = SkRect::MakeXYWH(r.centerX() - tw / 2 - 5, r.top() - 26, tw + 10, 17);
+    SkPaint p;
+    p.setAntiAlias(true);
+    p.setColor(kBlue);
+    c->drawRRect(SkRRect::MakeRectXY(pill, 3, 3), p);
+    p.setColor(SK_ColorWHITE);
+    c->drawSimpleText(label.constData(), label.size(), SkTextEncoding::kUTF8, pill.left() + 5, pill.top() + 12.5f, font, p);
+}
+
+// ================================================================ EyedropperTool
+
+void EyedropperTool::move(const InputEvent& e)
+{
+    m_screen = e.screen;
+    m_color = ed.sampleColor(e.page);
+    ed.requestUpdate();
+}
+
+void EyedropperTool::press(const InputEvent& e)
+{
+    ed.finishPick(ed.sampleColor(e.page), true);
+}
+
+bool EyedropperTool::key(QKeyEvent* e)
+{
+    if (e->key() == Qt::Key_Escape) {
+        ed.finishPick(SkColors::kBlack, false);
+        return true;
+    }
+    return false;
+}
+
+void EyedropperTool::drawOverlay(SkCanvas* c)
+{
+    const float x = float(m_screen.x()) + 22, y = float(m_screen.y()) + 22;
+    SkPaint p;
+    p.setAntiAlias(true);
+    p.setColor4f(m_color);
+    c->drawCircle(x, y, 16, p);
+    p.setStyle(SkPaint::kStroke_Style);
+    p.setStrokeWidth(3);
+    p.setColor(SK_ColorWHITE);
+    c->drawCircle(x, y, 16, p);
+    p.setStrokeWidth(1);
+    p.setColor(SkColorSetARGB(0x66, 0, 0, 0));
+    c->drawCircle(x, y, 17.5f, p);
+    const SkColor sc = m_color.toSkColor();
+    const QByteArray hex = QStringLiteral("%1%2%3")
+                               .arg(SkColorGetR(sc), 2, 16, QLatin1Char('0'))
+                               .arg(SkColorGetG(sc), 2, 16, QLatin1Char('0'))
+                               .arg(SkColorGetB(sc), 2, 16, QLatin1Char('0'))
+                               .toUpper()
+                               .toUtf8();
+    const SkFont font = text::uiFont(10, true);
+    SkPaint tp;
+    tp.setAntiAlias(true);
+    tp.setColor(SK_ColorWHITE);
+    const float tw = font.measureText(hex.constData(), hex.size(), SkTextEncoding::kUTF8);
+    SkPaint bg;
+    bg.setAntiAlias(true);
+    bg.setColor(SkColorSetARGB(0xDD, 0x1E, 0x1E, 0x1E));
+    c->drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(x - tw / 2 - 4, y + 21, tw + 8, 15), 3, 3), bg);
+    c->drawSimpleText(hex.constData(), hex.size(), SkTextEncoding::kUTF8, x - tw / 2, y + 32, font, tp);
 }
 
 // ================================================================ TextEditTool

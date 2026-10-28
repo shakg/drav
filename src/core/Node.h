@@ -92,6 +92,7 @@ struct Props {
     std::vector<ExportSetting> exports;
 
     SkColor4f pageBackground = {0.118f, 0.118f, 0.118f, 1.f};
+    std::vector<Guide> guides; // Page
 
     // Styles and variables. Style ids travel with the property group they drive.
     QString fillStyle, strokeStyle, textStyleId, effectStyle, gridStyle;

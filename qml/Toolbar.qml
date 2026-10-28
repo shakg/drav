@@ -38,6 +38,7 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 2
         ToolButton { tool: "select"; iconName: "select"; tip: qsTr("Move (V)"); checked: editor.tool === "select" || editor.tool === "vectorEdit" || editor.tool === "textEdit" }
+        ToolButton { tool: "scale"; iconName: "scale"; tip: qsTr("Scale (K)") }
         ToolButton { tool: "frame"; iconName: "frame"; tip: qsTr("Frame (F)") }
         Row {
             ToolButton {

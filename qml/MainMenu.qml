@@ -58,6 +58,7 @@ Menu {
         Item_ { text: (editor.outlines ? "✓ " : "") + qsTr("Outlines"); shortcut: "Ctrl+Y"; onTriggered: editor.outlines = !editor.outlines }
         Item_ { text: (editor.showGrids ? "✓ " : "") + qsTr("Layout grids"); onTriggered: editor.showGrids = !editor.showGrids }
         Item_ { text: (editor.snapToPixels ? "✓ " : "") + qsTr("Snap to pixel grid"); onTriggered: editor.snapToPixels = !editor.snapToPixels }
+        Item_ { text: (editor.rulers ? "✓ " : "") + qsTr("Rulers"); shortcut: "Shift+R"; onTriggered: editor.rulers = !editor.rulers }
     }
     Menu {
         title: qsTr("Object")
@@ -82,6 +83,8 @@ Menu {
         Item_ { text: qsTr("Flip vertical"); shortcut: "Shift+V"; onTriggered: editor.flip(false) }
         Item_ { text: qsTr("Rotate 90° right"); onTriggered: editor.rotateSelection(90) }
         Item_ { text: qsTr("Rotate 90° left"); onTriggered: editor.rotateSelection(-90) }
+        Item_ { text: qsTr("Scale tool"); shortcut: "K"; onTriggered: editor.tool = "scale" }
+        Item_ { text: qsTr("Pick color"); shortcut: "I"; onTriggered: editor.pickColor() }
         MenuSeparator {}
         Item_ { text: qsTr("Union"); onTriggered: editor.booleanOp("union") }
         Item_ { text: qsTr("Subtract"); onTriggered: editor.booleanOp("subtract") }

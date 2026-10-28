@@ -691,6 +691,57 @@ void Document::fitGroup(NodeId id)
     p.height = std::max(u.height(), 0.01f);
 }
 
+void Document::scaleDeep(NodeId id, float f)
+{
+    std::function<void(NodeId, bool)> rec = [&](NodeId n, bool root) {
+        Props& p = edit(n);
+        p.width *= f;
+        p.height *= f;
+        if (!root) {
+            p.transform.setTranslateX(p.transform.getTranslateX() * f);
+            p.transform.setTranslateY(p.transform.getTranslateY() * f);
+        }
+        p.stroke.weight *= f;
+        for (float& d : p.stroke.dashes)
+            d *= f;
+        p.corners = {p.corners.tl * f, p.corners.tr * f, p.corners.br * f, p.corners.bl * f};
+        for (Effect& e : p.effects) {
+            e.offset = {e.offset.x() * f, e.offset.y() * f};
+            e.radius *= f;
+            e.spread *= f;
+        }
+        AutoLayout& l = p.layout;
+        l.spacing *= f;
+        l.counterSpacing *= f;
+        l.padL *= f, l.padT *= f, l.padR *= f, l.padB *= f;
+        LayoutChild& c = p.layoutChild;
+        c.minW *= f, c.maxW *= f, c.minH *= f, c.maxH *= f;
+        TextStyle& t = p.textStyle;
+        t.size *= f;
+        if (t.lineHeight > 0 && !t.lineHeightPercent)
+            t.lineHeight *= f;
+        t.paragraphSpacing *= f;
+        for (TextRun& r : p.textRuns)
+            if (r.mask & RunSize)
+                r.size *= f;
+        p.vector.transform(SkMatrix::Scale(f, f));
+        for (LayoutGrid& g : p.grids) {
+            g.size *= f;
+            g.gutter *= f;
+            g.margin *= f;
+        }
+        // Scaling detaches values that styles and variables would otherwise put back.
+        p.textStyleId.clear();
+        p.effectStyle.clear();
+        p.gridStyle.clear();
+        p.bindings.clear();
+        const auto kids = at(n).children;
+        for (NodeId k : kids)
+            rec(k, false);
+    };
+    rec(id, true);
+}
+
 const Library& Document::library() const
 {
     static const Library empty;
