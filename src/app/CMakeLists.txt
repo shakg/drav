@@ -31,9 +31,46 @@ qt_add_qml_module(drav
     URI Drav
     VERSION 1.0
     QML_FILES ${DRAV_QML}
-    NO_RESOURCE_TARGET_PATH
 )
 
 target_link_libraries(drav PRIVATE drav_editor Qt6::Quick Qt6::QuickControls2 Qt6::OpenGL Qt6::Gui)
 set_target_properties(drav PROPERTIES WIN32_EXECUTABLE ON MACOSX_BUNDLE ON)
+
+# App icon, file association and desktop integration.
+set(DRAV_RES "${PROJECT_SOURCE_DIR}/resources")
+qt_add_resources(drav "app_icon" PREFIX "/icons" BASE "${DRAV_RES}/icons" FILES "${DRAV_RES}/icons/drav.png")
+if(APPLE)
+    set(icns "${DRAV_RES}/icons/drav.icns")
+    set_source_files_properties("${icns}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(drav PRIVATE "${icns}")
+    configure_file("${DRAV_RES}/macos/Info.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+    set_target_properties(drav PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist")
+elseif(WIN32)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/drav.rc" "IDI_ICON1 ICON \"${DRAV_RES}/icons/drav.ico\"\n")
+    target_sources(drav PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/drav.rc")
+endif()
+
 install(TARGETS drav RUNTIME DESTINATION bin BUNDLE DESTINATION .)
+if(UNIX AND NOT APPLE)
+    install(FILES "${DRAV_RES}/linux/drav.desktop" DESTINATION share/applications)
+    install(FILES "${DRAV_RES}/linux/drav.xml" DESTINATION share/mime/packages)
+    install(FILES "${DRAV_RES}/icons/drav.png" DESTINATION share/icons/hicolor/512x512/apps)
+    install(FILES "${DRAV_RES}/icons/drav.svg" DESTINATION share/icons/hicolor/scalable/apps)
+endif()
+
+# Copies Qt (libraries, plugins, QML modules) next to the app on install, so the install tree
+# is self-contained: windeployqt on Windows, macdeployqt on macOS, Qt's own deployer on Linux.
+# Turn off when packaging against a system Qt (distro packages).
+option(DRAV_DEPLOY_QT "Bundle Qt into the install tree" ON)
+if(DRAV_DEPLOY_QT)
+    # On Linux, libraries that must match the host (libc, GPU drivers, X11, D-Bus, fontconfig)
+    # are left out even when the toolchain (e.g. conda) provides its own copies.
+    set(host_libs "^/lib/" "^/lib64/" "^/usr/lib/" "^/usr/lib64/" "/ld-linux")
+    foreach(name c m dl pthread rt resolv util GL EGL GLX GLdispatch OpenGL gbm drm X11 X11-xcb Xau Xdmcp xcb
+            ICE SM dbus-1 fontconfig freetype expat uuid)
+        list(APPEND host_libs "/lib${name}[.]so")
+    endforeach()
+    qt_generate_deploy_qml_app_script(TARGET drav OUTPUT_SCRIPT deploy_script NO_UNSUPPORTED_PLATFORM_ERROR
+        POST_EXCLUDE_REGEXES ${host_libs})
+    install(SCRIPT "${deploy_script}")
+endif()

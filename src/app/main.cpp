@@ -1,6 +1,8 @@
 #include "Editor.h"
 
 #include <QCommandLineParser>
+#include <QFileOpenEvent>
+#include <QIcon>
 #include <QGuiApplication>
 #include <QQmlAbstractUrlInterceptor>
 #include <QQmlApplicationEngine>
@@ -32,6 +34,26 @@ public:
     }
 };
 
+// macOS delivers documents opened from Finder (or dropped on the Dock icon) as events.
+class FileOpenFilter : public QObject {
+public:
+    explicit FileOpenFilter(drav::Editor& ed)
+        : m_ed(ed)
+    {
+    }
+    bool eventFilter(QObject* o, QEvent* e) override
+    {
+        if (e->type() == QEvent::FileOpen) {
+            m_ed.open(static_cast<QFileOpenEvent*>(e)->url());
+            return true;
+        }
+        return QObject::eventFilter(o, e);
+    }
+
+private:
+    drav::Editor& m_ed;
+};
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -47,6 +69,8 @@ int main(int argc, char* argv[])
     QGuiApplication::setApplicationName(QStringLiteral("drav"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("drav"));
     QGuiApplication::setOrganizationName(QStringLiteral("drav"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("drav"));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/drav.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QCommandLineParser cli;
@@ -63,6 +87,8 @@ int main(int argc, char* argv[])
     cli.process(app);
 
     drav::Editor editor;
+    FileOpenFilter fileOpen(editor);
+    app.installEventFilter(&fileOpen);
     QQmlApplicationEngine engine;
     engine.addUrlInterceptor(new OfflineInterceptor);
     engine.rootContext()->setContextProperty(QStringLiteral("editor"), &editor);
