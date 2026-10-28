@@ -8,6 +8,7 @@ add_library(drav_core STATIC
     Serializer.h Serializer.cpp
     Library.h Library.cpp
     Variables.h Variables.cpp
+    Libraries.h Libraries.cpp
 )
 qt_add_resources(drav_core "fonts"
     PREFIX "/fonts"

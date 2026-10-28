@@ -248,6 +248,7 @@ void Editor::onDocChanged(bool structure)
     if (m_doc->libraryPtr() != m_lastLibrary) {
         m_lastLibrary = m_doc->libraryPtr();
         emit libraryChanged();
+        emit librariesChanged();
     }
     m_layers->sync();
     if (structure) {

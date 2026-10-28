@@ -93,6 +93,8 @@ struct Props {
 
     SkColor4f pageBackground = {0.118f, 0.118f, 0.118f, 1.f};
     std::vector<Guide> guides; // Page
+    QString libraryPage; // Page: holds components imported from this linked library (hidden)
+    QString remote;      // node imported from a linked library: "<library id>:<source node id>"
 
     // Styles and variables. Style ids travel with the property group they drive.
     QString fillStyle, strokeStyle, textStyleId, effectStyle, gridStyle;

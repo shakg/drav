@@ -1021,7 +1021,8 @@ QVariantList Editor::pages() const
 {
     QVariantList out;
     for (NodeId p : m_doc->pages())
-        out << QVariantMap{{QStringLiteral("id"), qint64(p)}, {QStringLiteral("name"), m_doc->at(p).p.name}};
+        if (m_doc->at(p).p.libraryPage.isEmpty()) // pages holding library imports stay hidden
+            out << QVariantMap{{QStringLiteral("id"), qint64(p)}, {QStringLiteral("name"), m_doc->at(p).p.name}};
     return out;
 }
 
@@ -1088,7 +1089,8 @@ QVariantList Editor::components() const
         out << QVariantMap{{QStringLiteral("id"), qint64(c)},
             {QStringLiteral("name"), n.p.name},
             {QStringLiteral("set"), inSet ? parent.p.name : QString()},
-            {QStringLiteral("page"), m_doc->at(m_doc->pageOf(c)).p.name}};
+            {QStringLiteral("page"), m_doc->at(m_doc->pageOf(c)).p.name},
+            {QStringLiteral("remote"), !n.p.remote.isEmpty()}};
     }
     return out;
 }

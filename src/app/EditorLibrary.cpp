@@ -4,7 +4,12 @@
 #include "Editor.h"
 #include "PropMaps.h"
 
+#include "core/Libraries.h"
+#include "core/Serializer.h"
 #include "core/Variables.h"
+
+#include <QFile>
+#include <QFileInfo>
 
 namespace drav {
 
@@ -59,14 +64,15 @@ QVariantMap Editor::library() const
             {QStringLiteral("type"), QString::fromLatin1(styleTypeName(st.type))},
             {QStringLiteral("description"), st.description}, {QStringLiteral("paints"), paintsToList(st.paints)},
             {QStringLiteral("text"), typographyToMap(st.text)}, {QStringLiteral("effects"), effectsToList(st.effects)},
-            {QStringLiteral("grids"), gridsToList(st.grids)}, {QStringLiteral("users"), users.value(st.id)}};
+            {QStringLiteral("grids"), gridsToList(st.grids)}, {QStringLiteral("users"), users.value(st.id)},
+            {QStringLiteral("remote"), st.remote}};
     QVariantList collections;
     for (const VarCollection& c : lib.collections) {
         QVariantList modes;
         for (const VarMode& m : c.modes)
             modes << QVariantMap{{QStringLiteral("id"), m.id}, {QStringLiteral("name"), m.name}};
         collections << QVariantMap{{QStringLiteral("id"), c.id}, {QStringLiteral("name"), c.name},
-            {QStringLiteral("modes"), modes}};
+            {QStringLiteral("modes"), modes}, {QStringLiteral("remote"), c.remote}};
     }
     QVariantList variables;
     for (const Variable& v : lib.variables) {
@@ -82,7 +88,8 @@ QVariantMap Editor::library() const
             }
         variables << QVariantMap{{QStringLiteral("id"), v.id}, {QStringLiteral("name"), v.name},
             {QStringLiteral("collection"), v.collection}, {QStringLiteral("type"), QString::fromLatin1(varTypeName(v.type))},
-            {QStringLiteral("description"), v.description}, {QStringLiteral("values"), values}};
+            {QStringLiteral("description"), v.description}, {QStringLiteral("values"), values},
+            {QStringLiteral("remote"), v.remote}};
     }
     return {{QStringLiteral("styles"), styles}, {QStringLiteral("collections"), collections},
         {QStringLiteral("variables"), variables}};
@@ -154,9 +161,17 @@ void Editor::applyStyle(const QString& slot, const QString& styleId)
     m_doc->commit();
 }
 
+bool Editor::remoteGuard(const QString& remote)
+{
+    if (remote.isEmpty())
+        return false;
+    setStatus(tr("This comes from a linked library; edit it in the library file"));
+    return true;
+}
+
 void Editor::editStyle(const QString& id, const QVariantMap& changes, bool live)
 {
-    if (!m_doc->library().style(id))
+    if (!m_doc->library().style(id) || remoteGuard(m_doc->library().style(id)->remote))
         return;
     if (!live)
         m_doc->breakMerge();
@@ -252,7 +267,7 @@ void Editor::detachRefs(const std::function<bool(const QString&)>& gone)
 
 void Editor::deleteStyle(const QString& id)
 {
-    if (!m_doc->library().style(id))
+    if (!m_doc->library().style(id) || remoteGuard(m_doc->library().style(id)->remote))
         return;
     m_doc->breakMerge();
     m_doc->begin(tr("Delete style"));
@@ -409,7 +424,7 @@ QString Editor::addVariable(const QString& collection, const QString& type, cons
 
 void Editor::renameVariable(const QString& id, const QString& name)
 {
-    if (!m_doc->library().variable(id) || name.trimmed().isEmpty())
+    if (!m_doc->library().variable(id) || name.trimmed().isEmpty() || remoteGuard(m_doc->library().variable(id)->remote))
         return;
     m_doc->breakMerge();
     m_doc->begin(tr("Rename variable"));
@@ -430,7 +445,7 @@ void Editor::setVariableDescription(const QString& id, const QString& text)
 void Editor::setVariableValue(const QString& id, const QString& mode, const QVariant& value, bool live)
 {
     const Variable* cur = m_doc->library().variable(id);
-    if (!cur)
+    if (!cur || remoteGuard(cur->remote))
         return;
     VarValue x;
     switch (cur->type) {
@@ -474,7 +489,7 @@ void Editor::setVariableAlias(const QString& id, const QString& mode, const QStr
 void Editor::deleteVariable(const QString& id)
 {
     const Library& before = m_doc->library();
-    if (!before.variable(id))
+    if (!before.variable(id) || remoteGuard(before.variable(id)->remote))
         return;
     // Aliases to the deleted variable keep its value in their mode.
     std::vector<std::tuple<QString, QString, VarValue>> literal;
@@ -584,6 +599,116 @@ QVariant Editor::resolveVariable(const QString& id) const
     VarType t;
     auto r = vars::resolve(m_doc->library(), id, [&](const QString& c) { return vars::modeFor(*m_doc, ctx, c); }, &t);
     return r ? valueToVariant(*r, t) : QVariant();
+}
+
+// ---------------------------------------------------------------- linked libraries
+
+const Editor::CachedLibrary* Editor::loadLibrary(const QString& path) const
+{
+    const QFileInfo fi(path);
+    if (!fi.exists())
+        return nullptr;
+    auto it = m_libraryCache.find(path);
+    if (it != m_libraryCache.end() && it->second.modified == fi.lastModified())
+        return &it->second;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return nullptr;
+    const QByteArray data = f.readAll();
+    auto doc = std::make_shared<Document>();
+    if (!io::load(*doc, data))
+        return nullptr;
+    CachedLibrary c{fi.lastModified(), libs::fileHash(data), doc};
+    return &(m_libraryCache[path] = c);
+}
+
+QVariantList Editor::libraries() const
+{
+    QVariantList out;
+    for (const LibraryLink& l : m_doc->library().links) {
+        const CachedLibrary* c = loadLibrary(l.path);
+        QVariantList comps;
+        if (c)
+            for (NodeId id : c->doc->allComponents()) {
+                const Node& n = c->doc->at(id);
+                if (c->doc->isInsideInstance(id) || !n.p.remote.isEmpty() || !c->doc->at(c->doc->pageOf(id)).p.libraryPage.isEmpty())
+                    continue;
+                const Node& parent = c->doc->at(n.parent);
+                comps << QVariantMap{{QStringLiteral("id"), qint64(id)}, {QStringLiteral("name"), n.p.name},
+                    {QStringLiteral("set"), parent.type() == NodeType::ComponentSet ? parent.p.name : QString()}};
+            }
+        out << QVariantMap{{QStringLiteral("id"), l.id}, {QStringLiteral("name"), l.name}, {QStringLiteral("path"), l.path},
+            {QStringLiteral("missing"), c == nullptr}, {QStringLiteral("updateAvailable"), c && c->hash != l.hash},
+            {QStringLiteral("components"), comps}};
+    }
+    return out;
+}
+
+bool Editor::addLibrary(const QUrl& url)
+{
+    const QString path = QFileInfo(url.isLocalFile() ? url.toLocalFile() : url.toString()).absoluteFilePath();
+    if (!m_fileUrl.isEmpty() && QFileInfo(m_fileUrl.toLocalFile()).absoluteFilePath() == path) {
+        setStatus(tr("A file can't use itself as a library"));
+        return false;
+    }
+    const CachedLibrary* c = loadLibrary(path);
+    if (!c) {
+        setStatus(tr("Cannot read library %1").arg(path));
+        return false;
+    }
+    m_doc->breakMerge();
+    m_doc->begin(tr("Add library"));
+    libs::link(*m_doc, path, QFileInfo(path).completeBaseName(), c->hash, *c->doc);
+    m_doc->commit();
+    emit librariesChanged();
+    setStatus(tr("Added library %1").arg(QFileInfo(path).completeBaseName()));
+    return true;
+}
+
+void Editor::updateLibrary(const QString& id)
+{
+    for (const LibraryLink& l : m_doc->library().links) {
+        if (l.id != id)
+            continue;
+        const CachedLibrary* c = loadLibrary(l.path);
+        if (!c) {
+            setStatus(tr("Library file is missing: %1").arg(l.path));
+            return;
+        }
+        m_doc->breakMerge();
+        m_doc->begin(tr("Update library"));
+        libs::update(*m_doc, id, *c->doc, c->hash);
+        m_doc->commit();
+        emit librariesChanged();
+        setStatus(tr("Updated %1").arg(l.name));
+        return;
+    }
+}
+
+void Editor::removeLibrary(const QString& id)
+{
+    m_doc->breakMerge();
+    m_doc->begin(tr("Remove library"));
+    libs::unlink(*m_doc, id);
+    m_doc->commit();
+    emit librariesChanged();
+}
+
+void Editor::placeLibraryComponent(const QString& libId, qint64 sourceId)
+{
+    for (const LibraryLink& l : m_doc->library().links) {
+        if (l.id != libId)
+            continue;
+        const CachedLibrary* c = loadLibrary(l.path);
+        if (!c)
+            return;
+        m_doc->breakMerge();
+        m_doc->begin(tr("Insert instance"));
+        if (const NodeId local = libs::importComponent(*m_doc, libId, *c->doc, NodeId(sourceId)))
+            placeComponent(qint64(local)); // nested: one undo step with the import
+        m_doc->commit();
+        return;
+    }
 }
 
 } // namespace drav

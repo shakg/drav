@@ -5,6 +5,7 @@
 
 #include <include/core/SkPicture.h>
 
+#include <QDateTime>
 #include <QObject>
 #include <QPointF>
 #include <QSizeF>
@@ -74,6 +75,7 @@ class Editor : public QObject {
     Q_PROPERTY(QVariantMap library READ library NOTIFY libraryChanged)
     Q_PROPERTY(bool rulers READ rulers WRITE setRulers NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ recentFiles NOTIFY recentFilesChanged)
+    Q_PROPERTY(QVariantList libraries READ libraries NOTIFY librariesChanged)
 
 public:
     explicit Editor(QObject* parent = nullptr);
@@ -281,6 +283,15 @@ public:
     Q_INVOKABLE QStringList missingFonts() const;
     Q_INVOKABLE void replaceFont(const QString& from, const QString& to);
 
+    // ---- linked libraries (EditorLibrary.cpp) ----
+    // [{id, name, path, missing, updateAvailable, components: [{id, name, set}]}]
+    QVariantList libraries() const;
+    Q_INVOKABLE bool addLibrary(const QUrl& url);
+    Q_INVOKABLE void updateLibrary(const QString& id);
+    Q_INVOKABLE void removeLibrary(const QString& id);
+    Q_INVOKABLE void placeLibraryComponent(const QString& libId, qint64 sourceId);
+    Q_INVOKABLE void refreshLibraries() { emit librariesChanged(); }
+
     // ---- component properties (EditorComponents.cpp) ----
     // type: "BOOLEAN", "TEXT", "INSTANCE_SWAP". Adds to the selected component or component set.
     Q_INVOKABLE QString addComponentProp(const QString& type, const QString& name);
@@ -354,6 +365,7 @@ signals:
     void requestFind();
     void colorPicked(const QColor& color);
     void recentFilesChanged();
+    void librariesChanged();
     void versionsChanged();
 
 private:
@@ -419,6 +431,14 @@ private:
     int m_guideHover = -1;
     bool m_pickForPopup = false;
     QString m_sessionId; // names this document's recovery file
+    struct CachedLibrary {
+        QDateTime modified;
+        QString hash;
+        std::shared_ptr<Document> doc;
+    };
+    mutable std::map<QString, CachedLibrary> m_libraryCache; // by file path
+    const CachedLibrary* loadLibrary(const QString& path) const;
+    bool remoteGuard(const QString& remote);
     void addRecent(const QString& path);
     QString versionsDir() const;
     void newSession();

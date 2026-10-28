@@ -16,6 +16,7 @@ enum class StyleType : std::uint8_t { Fill, Text, Effect, Grid };
 
 struct Style {
     QString id;
+    QString remote; // id of the linked library it came from (read-only), empty = local
     QString name; // "Group/Name" groups styles in the UI
     StyleType type = StyleType::Fill;
     QString description;
@@ -47,11 +48,13 @@ struct VarCollection {
     QString id;
     QString name;
     std::vector<VarMode> modes; // never empty; the first is the default
+    QString remote;
     bool operator==(const VarCollection&) const = default;
 };
 
 struct Variable {
     QString id;
+    QString remote;
     QString name; // "Group/Name"
     QString collection;
     VarType type = VarType::Color;
@@ -60,13 +63,23 @@ struct Variable {
     bool operator==(const Variable&) const = default;
 };
 
+// Another .drav file whose styles, variables and components this document uses.
+struct LibraryLink {
+    QString id;
+    QString path;
+    QString name;
+    QString hash; // content hash of the file when last imported or updated
+    bool operator==(const LibraryLink&) const = default;
+};
+
 struct Library {
+    std::vector<LibraryLink> links;
     std::vector<Style> styles;
     std::vector<VarCollection> collections;
     std::vector<Variable> variables;
     bool operator==(const Library&) const = default;
 
-    bool empty() const { return styles.empty() && collections.empty() && variables.empty(); }
+    bool empty() const { return styles.empty() && collections.empty() && variables.empty() && links.empty(); }
     const Style* style(const QString& id) const;
     Style* style(const QString& id);
     const Variable* variable(const QString& id) const;

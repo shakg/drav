@@ -662,6 +662,94 @@ private slots:
         QCOMPARE(d2.at(sec.id).type(), NodeType::Section);
     }
 
+    void linkedLibraries()
+    {
+        QTemporaryDir tmp;
+        const QString libPath = tmp.filePath("ds.drav");
+        NodeId srcIcon, srcButton;
+        QString styleId, varId;
+        {
+            // The library: a color style, a variable, an icon component used inside a button component.
+            Editor lib;
+            lib.newDocument();
+            Document& d = lib.doc();
+            d.begin("lib");
+            Style st;
+            st.id = Library::newId();
+            st.name = "Brand";
+            st.paints = {Paint::solid(SkColors::kBlue)};
+            d.editLibrary().styles.push_back(st);
+            styleId = st.id;
+            QString coll = Library::newId(), mode = Library::newId();
+            d.editLibrary().collections.push_back({coll, "Tokens", {{mode, "Default"}}});
+            Variable v;
+            v.id = varId = Library::newId();
+            v.name = "radius";
+            v.collection = coll;
+            v.type = VarType::Number;
+            VarValue r;
+            r.number = 12;
+            v.values = {{mode, r}};
+            d.editLibrary().variables.push_back(v);
+            srcIcon = d.create(NodeType::Component, d.currentPage());
+            d.edit(srcIcon).name = "Icon";
+            d.create(NodeType::Ellipse, srcIcon);
+            srcButton = d.create(NodeType::Component, d.currentPage());
+            d.edit(srcButton).name = "Button";
+            d.edit(srcButton).fillStyle = st.id;
+            d.edit(srcButton).bindings.insert("cornerRadius", v.id);
+            Props ip;
+            ip.type = NodeType::Instance;
+            ip.componentId = srcIcon;
+            d.create(ip, srcButton);
+            d.commit();
+            QVERIFY(lib.saveAs(QUrl::fromLocalFile(libPath)));
+        }
+
+        QVERIFY(ed->addLibrary(QUrl::fromLocalFile(libPath)));
+        QCOMPARE(doc().library().style(styleId)->remote.isEmpty(), false);
+        QVERIFY(doc().library().variable(varId));
+        QVariantList libs = ed->libraries();
+        QCOMPARE(libs.size(), 1);
+        QCOMPARE(libs[0].toMap()["components"].toList().size(), 2);
+        const QString libId = libs[0].toMap()["id"].toString();
+
+        ed->placeLibraryComponent(libId, qint64(srcButton));
+        const Node& inst = only();
+        QCOMPARE(inst.type(), NodeType::Instance);
+        QCOMPARE(inst.p.fills.at(0).color, SkColors::kBlue);
+        QCOMPARE(inst.p.corners.tl, 12.f);
+        QCOMPARE(inst.children.size(), size_t(1)); // the nested icon instance
+        QCOMPARE(ed->pages().size(), 1);           // the library page stays hidden
+        const NodeId instId = inst.id;
+
+        // Edit the library file: the style turns red, the button gets a second child.
+        {
+            Editor lib;
+            QVERIFY(lib.open(QUrl::fromLocalFile(libPath)));
+            Document& d = lib.doc();
+            d.begin("edit");
+            d.editLibrary().style(styleId)->paints = {Paint::solid(SkColors::kRed)};
+            d.create(NodeType::Rectangle, srcButton);
+            d.commit();
+            QVERIFY(lib.save());
+        }
+        ed->refreshLibraries();
+        QVERIFY(ed->libraries()[0].toMap()["updateAvailable"].toBool());
+        ed->updateLibrary(libId);
+        QVERIFY(!ed->libraries()[0].toMap()["updateAvailable"].toBool());
+        QCOMPARE(doc().at(instId).p.fills.at(0).color, SkColors::kRed);
+        QCOMPARE(doc().at(instId).children.size(), size_t(2));
+
+        // Library assets are read-only here.
+        ed->editStyle(styleId, {{"name", "Renamed"}});
+        QCOMPARE(doc().library().style(styleId)->name, QStringLiteral("Brand"));
+
+        ed->removeLibrary(libId);
+        QVERIFY(doc().library().style(styleId)->remote.isEmpty());
+        QCOMPARE(ed->pages().size(), 2); // imported components now on a visible page
+    }
+
     void svgImport()
     {
         QTemporaryDir dir;

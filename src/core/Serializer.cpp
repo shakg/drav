@@ -404,6 +404,10 @@ QCborMap propsToCbor(const Props& p)
     }
     if (p.type == NodeType::Page)
         m[K("background")] = color(p.pageBackground);
+    if (!p.libraryPage.isEmpty())
+        m[K("libraryPage")] = p.libraryPage;
+    if (!p.remote.isEmpty())
+        m[K("remote")] = p.remote;
     if (!p.guides.empty()) {
         QCborArray gs;
         for (const Guide& g : p.guides)
@@ -565,6 +569,8 @@ Props propsFromCbor(const QCborMap& m)
     }
     if (m.contains(K("background")))
         p.pageBackground = color(m.value(K("background")), p.pageBackground);
+    p.libraryPage = str(m, "libraryPage");
+    p.remote = str(m, "remote");
     for (const QCborValue& gv : m.value(K("guides")).toArray()) {
         const QCborArray a = gv.toArray();
         p.guides.push_back({a.at(0).toBool(), float(a.at(1).toDouble())});
@@ -599,6 +605,8 @@ QCborMap libraryToCbor(const Library& lib)
     QCborArray styles;
     for (const Style& st : lib.styles) {
         QCborMap m{{K("id"), st.id}, {K("name"), st.name}, {K("type"), QString::fromLatin1(styleTypeName(st.type))}};
+        if (!st.remote.isEmpty())
+            m[K("remote")] = st.remote;
         if (!st.description.isEmpty())
             m[K("description")] = st.description;
         switch (st.type) {
@@ -614,7 +622,10 @@ QCborMap libraryToCbor(const Library& lib)
         QCborArray modes;
         for (const VarMode& md : c.modes)
             modes.append(QCborArray{md.id, md.name});
-        collections.append(QCborMap{{K("id"), c.id}, {K("name"), c.name}, {K("modes"), modes}});
+        QCborMap cm{{K("id"), c.id}, {K("name"), c.name}, {K("modes"), modes}};
+        if (!c.remote.isEmpty())
+            cm[K("remote")] = c.remote;
+        collections.append(cm);
     }
     QCborArray variables;
     for (const Variable& v : lib.variables) {
@@ -638,9 +649,17 @@ QCborMap libraryToCbor(const Library& lib)
             {K("type"), QString::fromLatin1(varTypeName(v.type))}, {K("values"), values}};
         if (!v.description.isEmpty())
             m[K("description")] = v.description;
+        if (!v.remote.isEmpty())
+            m[K("remote")] = v.remote;
         variables.append(m);
     }
-    return QCborMap{{K("styles"), styles}, {K("collections"), collections}, {K("variables"), variables}};
+    QCborArray links;
+    for (const LibraryLink& l : lib.links)
+        links.append(QCborMap{{K("id"), l.id}, {K("path"), l.path}, {K("name"), l.name}, {K("hash"), l.hash}});
+    QCborMap out{{K("styles"), styles}, {K("collections"), collections}, {K("variables"), variables}};
+    if (!links.isEmpty())
+        out[K("links")] = links;
+    return out;
 }
 
 Library libraryFromCbor(const QCborMap& m)
@@ -653,6 +672,7 @@ Library libraryFromCbor(const QCborMap& m)
         st.name = str(sm, "name");
         st.type = styleTypeFromName(str(sm, "type"));
         st.description = str(sm, "description");
+        st.remote = str(sm, "remote");
         st.paints = paints(sm.value(K("paints")));
         if (sm.contains(K("text")))
             st.text = textStyleFromCbor(sm.value(K("text")).toMap());
@@ -665,6 +685,7 @@ Library libraryFromCbor(const QCborMap& m)
         VarCollection c;
         c.id = str(cm, "id");
         c.name = str(cm, "name");
+        c.remote = str(cm, "remote");
         for (const QCborValue& mv : cm.value(K("modes")).toArray()) {
             const QCborArray a = mv.toArray();
             c.modes.push_back({a.at(0).toString(), a.at(1).toString()});
@@ -681,6 +702,7 @@ Library libraryFromCbor(const QCborMap& m)
         v.collection = str(vm, "collection");
         v.type = varTypeFromName(str(vm, "type"));
         v.description = str(vm, "description");
+        v.remote = str(vm, "remote");
         const QCborMap values = vm.value(K("values")).toMap();
         for (auto it = values.begin(); it != values.end(); ++it) {
             const QCborMap xm = it.value().toMap();
@@ -693,6 +715,10 @@ Library libraryFromCbor(const QCborMap& m)
             v.values.insert(it.key().toString(), x);
         }
         lib.variables.push_back(v);
+    }
+    for (const QCborValue& lv : m.value(K("links")).toArray()) {
+        const QCborMap lm = lv.toMap();
+        lib.links.push_back({str(lm, "id"), str(lm, "path"), str(lm, "name"), str(lm, "hash")});
     }
     return lib;
 }
