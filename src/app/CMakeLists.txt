@@ -60,9 +60,10 @@ endif()
 
 # Copies Qt (libraries, plugins, QML modules) next to the app on install, so the install tree
 # is self-contained: windeployqt on Windows, macdeployqt on macOS, Qt's own deployer on Linux.
-# Turn off when packaging against a system Qt (distro packages).
+# Turn off when packaging against a system Qt (distro packages). DRAV_PACKAGE runs its own deploy
+# script (cmake/Packaging.cmake); a second one for the same target is a CMake generate error.
 option(DRAV_DEPLOY_QT "Bundle Qt into the install tree" ON)
-if(DRAV_DEPLOY_QT)
+if(DRAV_DEPLOY_QT AND NOT DRAV_PACKAGE)
     # On Linux, libraries that must match the host (libc, GPU drivers, X11, D-Bus, fontconfig)
     # are left out even when the toolchain (e.g. conda) provides its own copies.
     set(host_libs "^/lib/" "^/lib64/" "^/usr/lib/" "^/usr/lib64/" "/ld-linux")
