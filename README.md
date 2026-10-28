@@ -67,6 +67,16 @@ cmake --build build && ctest --test-dir build
 
 Command-line options: `drav [file]`, `--demo`, `--select <layer name>`, `--screenshot <png>`, `--bench <seconds>`.
 
+## Packages
+
+CI (`.github/workflows/package.yml`) builds `drav_<version>_amd64.deb` for Ubuntu 24.04 on pushes to `main`, `v*` tags and PRs, then installs it on a clean `ubuntu:24.04` container and launches it. Download it from the run's artifacts, then:
+
+```bash
+sudo apt install ./drav_*_amd64.deb
+```
+
+The package bundles Qt 6.8 under `/opt/drav` (Ubuntu 24.04 ships Qt 6.4) and links `/usr/bin/drav`. Other libraries come from Ubuntu. To build it locally on Ubuntu 24.04, use the apt packages and Qt install from the workflow, then configure with `-DDRAV_PACKAGE=ON -DCMAKE_INSTALL_PREFIX=/opt/drav`, build, and run `cpack --config build/CPackConfig.cmake -B build/package`.
+
 ## Layout
 
 ```

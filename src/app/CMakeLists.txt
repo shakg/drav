@@ -28,7 +28,6 @@ qt_add_qml_module(drav
     URI Drav
     VERSION 1.0
     QML_FILES ${DRAV_QML}
-    NO_RESOURCE_TARGET_PATH
 )
 
 target_link_libraries(drav PRIVATE drav_editor Qt6::Quick Qt6::QuickControls2 Qt6::OpenGL Qt6::Gui)
