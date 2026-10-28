@@ -4,12 +4,11 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 // Runs JavaScript against the document through the `drav` object (one undo step per run).
-Window {
+ThemedWindow {
     id: root
     title: qsTr("Script console")
     width: 640
     height: 520
-    color: Theme.panel
     flags: Qt.Dialog
 
     ColumnLayout {

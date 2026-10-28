@@ -4,15 +4,12 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import Drav
 
-ApplicationWindow {
+ThemedWindow {
     id: window
     width: 1440
     height: 900
     visible: true
-    color: Theme.bg
     title: (editor.dirty ? "• " : "") + editor.fileName + " — drav"
-    font.family: Theme.fontFamily
-    font.pixelSize: Theme.fontSize
 
     property bool forceClose: false
     // The canvas has its own `editor` property, so hand it the global through a differently named one.
@@ -264,51 +261,51 @@ ApplicationWindow {
     }
 
     // ---------------- Canvas context menu
-    Menu {
+    AppMenu {
         id: contextMenu
-        MenuItem { text: qsTr("Copy"); onTriggered: editor.copy() }
-        Menu {
+        AppMenuItem { text: qsTr("Copy"); onTriggered: editor.copy() }
+        AppMenu {
             title: qsTr("Copy as")
             enabled: editor.selectionCount > 0
-            MenuItem { text: qsTr("PNG"); onTriggered: editor.copyAs("PNG") }
-            MenuItem { text: qsTr("SVG"); onTriggered: editor.copyAs("SVG") }
-            MenuItem { text: qsTr("CSS"); onTriggered: editor.copyAs("CSS") }
+            AppMenuItem { text: qsTr("PNG"); onTriggered: editor.copyAs("PNG") }
+            AppMenuItem { text: qsTr("SVG"); onTriggered: editor.copyAs("SVG") }
+            AppMenuItem { text: qsTr("CSS"); onTriggered: editor.copyAs("CSS") }
         }
-        MenuItem { text: qsTr("Paste here"); onTriggered: editor.paste() }
-        MenuItem { text: qsTr("Duplicate"); enabled: editor.selectionCount > 0; onTriggered: editor.duplicate() }
-        MenuItem { text: qsTr("Delete"); enabled: editor.selectionCount > 0; onTriggered: editor.deleteSelection() }
-        MenuSeparator {}
-        Menu {
+        AppMenuItem { text: qsTr("Paste here"); onTriggered: editor.paste() }
+        AppMenuItem { text: qsTr("Duplicate"); enabled: editor.selectionCount > 0; onTriggered: editor.duplicate() }
+        AppMenuItem { text: qsTr("Delete"); enabled: editor.selectionCount > 0; onTriggered: editor.deleteSelection() }
+        AppMenuSeparator {}
+        AppMenu {
             title: qsTr("Select")
             enabled: editor.selectionCount > 0
-            MenuItem { text: qsTr("Matching layers"); onTriggered: editor.selectSame("matching") }
-            MenuItem { text: qsTr("Same fill"); onTriggered: editor.selectSame("fill") }
-            MenuItem { text: qsTr("Same stroke"); onTriggered: editor.selectSame("stroke") }
-            MenuItem { text: qsTr("Same effect"); onTriggered: editor.selectSame("effect") }
-            MenuItem { text: qsTr("Same font"); onTriggered: editor.selectSame("font") }
-            MenuItem { text: qsTr("Same instance"); onTriggered: editor.selectSame("instance") }
+            AppMenuItem { text: qsTr("Matching layers"); onTriggered: editor.selectSame("matching") }
+            AppMenuItem { text: qsTr("Same fill"); onTriggered: editor.selectSame("fill") }
+            AppMenuItem { text: qsTr("Same stroke"); onTriggered: editor.selectSame("stroke") }
+            AppMenuItem { text: qsTr("Same effect"); onTriggered: editor.selectSame("effect") }
+            AppMenuItem { text: qsTr("Same font"); onTriggered: editor.selectSame("font") }
+            AppMenuItem { text: qsTr("Same instance"); onTriggered: editor.selectSame("instance") }
         }
-        MenuItem { text: qsTr("Rename…"); enabled: editor.selectionCount > 1; onTriggered: renameDialog.open() }
-        MenuSeparator {}
-        MenuItem { text: qsTr("Bring to front"); enabled: editor.selectionCount > 0; onTriggered: editor.bringToFront() }
-        MenuItem { text: qsTr("Send to back"); enabled: editor.selectionCount > 0; onTriggered: editor.sendToBack() }
-        MenuSeparator {}
-        MenuItem { text: qsTr("Group selection"); enabled: editor.selectionCount > 0; onTriggered: editor.group() }
-        MenuItem { text: qsTr("Frame selection"); enabled: editor.selectionCount > 0; onTriggered: editor.frameSelection() }
-        MenuItem { text: qsTr("Ungroup"); enabled: editor.selectionCount > 0; onTriggered: editor.ungroup() }
-        MenuItem { text: qsTr("Add auto layout"); enabled: editor.selectionCount > 0; onTriggered: editor.addAutoLayout() }
-        MenuSeparator {}
-        MenuItem { text: qsTr("Create component"); enabled: editor.selectionCount > 0; onTriggered: editor.createComponent() }
-        MenuItem { text: qsTr("Combine as variants"); enabled: editor.selectionCount > 1; onTriggered: editor.combineAsVariants() }
-        MenuItem { text: qsTr("Detach instance"); enabled: editor.props.isInstance === true; onTriggered: editor.detachInstance() }
-        MenuSeparator {}
-        MenuItem { text: qsTr("Flatten"); enabled: editor.selectionCount > 0; onTriggered: editor.flatten() }
-        MenuItem { text: qsTr("Outline stroke"); enabled: editor.selectionCount > 0; onTriggered: editor.outlineStroke() }
-        MenuItem { text: qsTr("Use as mask"); enabled: editor.selectionCount > 0; onTriggered: editor.useAsMask() }
-        MenuItem { text: qsTr("Put text on path"); enabled: editor.selectionCount === 2; onTriggered: editor.attachTextToPath() }
-        MenuSeparator {}
-        MenuItem { text: qsTr("Show/Hide"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleVisible() }
-        MenuItem { text: qsTr("Lock/Unlock"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleLocked() }
+        AppMenuItem { text: qsTr("Rename…"); enabled: editor.selectionCount > 1; onTriggered: renameDialog.open() }
+        AppMenuSeparator {}
+        AppMenuItem { text: qsTr("Bring to front"); enabled: editor.selectionCount > 0; onTriggered: editor.bringToFront() }
+        AppMenuItem { text: qsTr("Send to back"); enabled: editor.selectionCount > 0; onTriggered: editor.sendToBack() }
+        AppMenuSeparator {}
+        AppMenuItem { text: qsTr("Group selection"); enabled: editor.selectionCount > 0; onTriggered: editor.group() }
+        AppMenuItem { text: qsTr("Frame selection"); enabled: editor.selectionCount > 0; onTriggered: editor.frameSelection() }
+        AppMenuItem { text: qsTr("Ungroup"); enabled: editor.selectionCount > 0; onTriggered: editor.ungroup() }
+        AppMenuItem { text: qsTr("Add auto layout"); enabled: editor.selectionCount > 0; onTriggered: editor.addAutoLayout() }
+        AppMenuSeparator {}
+        AppMenuItem { text: qsTr("Create component"); enabled: editor.selectionCount > 0; onTriggered: editor.createComponent() }
+        AppMenuItem { text: qsTr("Combine as variants"); enabled: editor.selectionCount > 1; onTriggered: editor.combineAsVariants() }
+        AppMenuItem { text: qsTr("Detach instance"); enabled: editor.props.isInstance === true; onTriggered: editor.detachInstance() }
+        AppMenuSeparator {}
+        AppMenuItem { text: qsTr("Flatten"); enabled: editor.selectionCount > 0; onTriggered: editor.flatten() }
+        AppMenuItem { text: qsTr("Outline stroke"); enabled: editor.selectionCount > 0; onTriggered: editor.outlineStroke() }
+        AppMenuItem { text: qsTr("Use as mask"); enabled: editor.selectionCount > 0; onTriggered: editor.useAsMask() }
+        AppMenuItem { text: qsTr("Put text on path"); enabled: editor.selectionCount === 2; onTriggered: editor.attachTextToPath() }
+        AppMenuSeparator {}
+        AppMenuItem { text: qsTr("Show/Hide"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleVisible() }
+        AppMenuItem { text: qsTr("Lock/Unlock"); enabled: editor.selectionCount > 0; onTriggered: editor.toggleLocked() }
     }
 
     // ---------------- Dialogs

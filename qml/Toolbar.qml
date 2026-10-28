@@ -51,19 +51,20 @@ Rectangle {
             IconButton {
                 implicitWidth: 14; implicitHeight: 34; iconSize: 10; iconName: "chevronDown"
                 onClicked: shapeMenu.open()
-                Menu {
+                AppMenu {
                     id: shapeMenu
                     y: -implicitHeight - 8
                     Repeater {
                         model: root.shapeTools
-                        MenuItem {
+                        AppMenuItem {
                             required property var modelData
-                            text: modelData.text + (modelData.key ? "\t" + modelData.key : "")
+                            text: modelData.text
+                            shortcut: modelData.key || ""
                             onTriggered: editor.tool = modelData.tool
                         }
                     }
-                    MenuSeparator {}
-                    MenuItem { text: qsTr("Place image…\tCtrl+Shift+K"); onTriggered: root.importRequested() }
+                    AppMenuSeparator {}
+                    AppMenuItem { text: qsTr("Place image…"); shortcut: "Ctrl+Shift+K"; onTriggered: root.importRequested() }
                 }
             }
         }
@@ -77,11 +78,11 @@ Rectangle {
             IconButton {
                 implicitWidth: 14; implicitHeight: 34; iconSize: 10; iconName: "chevronDown"
                 onClicked: penMenu.open()
-                Menu {
+                AppMenu {
                     id: penMenu
                     y: -implicitHeight - 8
-                    MenuItem { text: qsTr("Pen\tP"); onTriggered: editor.tool = "pen" }
-                    MenuItem { text: qsTr("Pencil\tShift+P"); onTriggered: editor.tool = "pencil" }
+                    AppMenuItem { text: qsTr("Pen"); shortcut: "P"; onTriggered: editor.tool = "pen" }
+                    AppMenuItem { text: qsTr("Pencil"); shortcut: "Shift+P"; onTriggered: editor.tool = "pencil" }
                 }
             }
         }
