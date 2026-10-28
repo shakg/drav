@@ -175,6 +175,33 @@ private:
     Qt::CursorShape m_cursor = Qt::CrossCursor;
 };
 
+// Crop an image fill: drag to move the image inside the layer, drag its corners to scale it.
+class CropTool : public Tool {
+public:
+    using Tool::Tool;
+    void begin(NodeId id, int paintIndex);
+    void press(const InputEvent& e) override;
+    void move(const InputEvent& e) override;
+    void release(const InputEvent& e) override;
+    bool key(QKeyEvent* e) override;
+    void deactivate() override;
+    void drawOverlay(SkCanvas* c) override;
+    Qt::CursorShape cursor() const override { return m_cursor; }
+
+private:
+    SkRect imageRect(const SkRect& crop) const; // image bounds in layer space for a crop
+    SkMatrix toScreen() const;
+    int cornerAt(QPointF screen) const;
+
+    NodeId m_node = kNoNode;
+    int m_paint = -1;
+    bool m_dragging = false;
+    int m_corner = -1; // -1 = move
+    SkPoint m_startLocal{};
+    SkRect m_startImage{};
+    Qt::CursorShape m_cursor = Qt::SizeAllCursor;
+};
+
 // Eyedropper (I): samples the canvas color under the pointer.
 class EyedropperTool : public Tool {
 public:

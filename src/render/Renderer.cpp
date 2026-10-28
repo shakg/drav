@@ -1,5 +1,8 @@
 #include "Renderer.h"
 
+#include <include/core/SkColorFilter.h>
+#include <include/effects/SkColorMatrix.h>
+
 #include "core/Geometry.h"
 #include "core/Text.h"
 
@@ -29,6 +32,37 @@
 #include <mutex>
 
 namespace drav {
+
+sk_sp<SkColorFilter> imageAdjustments(const Paint& p)
+{
+    // Linear part: exposure (gain), contrast around mid gray, saturation, temperature and tint.
+    SkColorMatrix m;
+    const float gain = std::pow(2.f, p.exposure * 2);
+    m.setScale(gain, gain, gain);
+    const float c = 1 + p.contrast;
+    SkColorMatrix contrast;
+    contrast.setScale(c, c, c);
+    contrast.postTranslate(0.5f * (1 - c), 0.5f * (1 - c), 0.5f * (1 - c), 0);
+    m.postConcat(contrast);
+    SkColorMatrix sat;
+    sat.setSaturation(1 + p.saturation);
+    m.postConcat(sat);
+    SkColorMatrix warm;
+    warm.setScale(1 + 0.2f * p.temperature, 1 - 0.2f * p.tint, 1 - 0.2f * p.temperature);
+    m.postConcat(warm);
+    sk_sp<SkColorFilter> f = SkColorFilters::Matrix(m);
+    if (p.highlights || p.shadows) {
+        // Tone curve: shadows move dark values, highlights move bright ones.
+        uint8_t table[256];
+        for (int i = 0; i < 256; ++i) {
+            const float v = i / 255.f;
+            float o = v + p.shadows * 0.5f * (1 - v) * (1 - v) * v * 4 + p.highlights * 0.5f * v * v * (1 - v) * 4;
+            table[i] = uint8_t(std::clamp(o, 0.f, 1.f) * 255 + 0.5f);
+        }
+        f = SkColorFilters::Table(table)->makeComposed(f);
+    }
+    return f;
+}
 
 SkBlendMode toSkBlend(BlendMode m)
 {
@@ -407,8 +441,14 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
         SkMatrix m;
         SkTileMode tile = SkTileMode::kDecal;
         switch (paint.scaleMode) {
-        case ImageScaleMode::Fill:
         case ImageScaleMode::Crop: {
+            // The crop rect (normalized image coordinates) fills the layer's box.
+            const SkRect src = SkRect::MakeXYWH(paint.crop.left() * iw, paint.crop.top() * ih,
+                std::max(paint.crop.width(), 1e-4f) * iw, std::max(paint.crop.height(), 1e-4f) * ih);
+            m = SkMatrix::RectToRect(src, SkRect::MakeWH(p.width, p.height));
+            break;
+        }
+        case ImageScaleMode::Fill: {
             float s = std::max(p.width / iw, p.height / ih);
             m = SkMatrix::Translate((p.width - iw * s) / 2, (p.height - ih * s) / 2);
             m.preScale(s, s);
@@ -428,6 +468,8 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
         }
         out->setShader(img->makeShader(tile, tile, SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear), &m));
         out->setAlphaf(a);
+        if (paint.hasAdjustments())
+            out->setColorFilter(imageAdjustments(paint));
         return true;
     }
     std::vector<SkColor4f> colors;

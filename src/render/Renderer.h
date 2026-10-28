@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 class SkCanvas;
+class SkColorFilter;
 class SkPaint;
 
 namespace drav {
@@ -73,5 +74,6 @@ private:
 };
 
 SkBlendMode toSkBlend(BlendMode m);
+sk_sp<SkColorFilter> imageAdjustments(const Paint& p);
 
 } // namespace drav

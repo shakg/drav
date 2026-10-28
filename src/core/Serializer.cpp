@@ -79,6 +79,10 @@ QCborMap paintToCbor(const Paint& p)
         m[K("image")] = p.imageHash;
         m[K("scaleMode")] = int(p.scaleMode);
         m[K("imageScale")] = p.imageScale;
+        if (p.hasAdjustments())
+            m[K("adjust")] = QCborArray{p.exposure, p.contrast, p.saturation, p.temperature, p.tint, p.highlights, p.shadows};
+        if (p.crop != SkRect::MakeWH(1, 1))
+            m[K("crop")] = QCborArray{p.crop.left(), p.crop.top(), p.crop.width(), p.crop.height()};
     }
     if (!p.colorVar.isEmpty())
         m[K("colorVar")] = p.colorVar;
@@ -105,6 +109,17 @@ Paint paintFromCbor(const QCborMap& m)
     p.imageHash = str(m, "image");
     p.scaleMode = ImageScaleMode(integer(m, "scaleMode"));
     p.imageScale = num(m, "imageScale", 1);
+    if (m.contains(K("adjust"))) {
+        const QCborArray a = m.value(K("adjust")).toArray();
+        float* f[] = {&p.exposure, &p.contrast, &p.saturation, &p.temperature, &p.tint, &p.highlights, &p.shadows};
+        for (int i = 0; i < 7 && i < a.size(); ++i)
+            *f[i] = float(a.at(i).toDouble());
+    }
+    if (m.contains(K("crop"))) {
+        const QCborArray a = m.value(K("crop")).toArray();
+        if (a.size() == 4)
+            p.crop = SkRect::MakeXYWH(a[0].toDouble(), a[1].toDouble(), a[2].toDouble(), a[3].toDouble());
+    }
     p.colorVar = str(m, "colorVar");
     return p;
 }

@@ -75,6 +75,14 @@ inline QVariantMap paintToMap(const Paint& p)
         {QStringLiteral("scaleMode"), enumName(p.scaleMode, kScaleModes)},
         {QStringLiteral("imageScale"), p.imageScale},
         {QStringLiteral("colorVar"), p.colorVar},
+        {QStringLiteral("exposure"), p.exposure},
+        {QStringLiteral("contrast"), p.contrast},
+        {QStringLiteral("saturation"), p.saturation},
+        {QStringLiteral("temperature"), p.temperature},
+        {QStringLiteral("tint"), p.tint},
+        {QStringLiteral("highlights"), p.highlights},
+        {QStringLiteral("shadows"), p.shadows},
+        {QStringLiteral("crop"), QVariantList{p.crop.left(), p.crop.top(), p.crop.width(), p.crop.height()}},
     };
 }
 
@@ -107,6 +115,16 @@ inline Paint paintFromMap(const QVariantMap& m)
     p.scaleMode = enumValue(m.value(QStringLiteral("scaleMode")), kScaleModes, ImageScaleMode::Fill);
     p.imageScale = m.value(QStringLiteral("imageScale"), 1.0).toFloat();
     p.colorVar = m.value(QStringLiteral("colorVar")).toString();
+    p.exposure = m.value(QStringLiteral("exposure"), 0).toFloat();
+    p.contrast = m.value(QStringLiteral("contrast"), 0).toFloat();
+    p.saturation = m.value(QStringLiteral("saturation"), 0).toFloat();
+    p.temperature = m.value(QStringLiteral("temperature"), 0).toFloat();
+    p.tint = m.value(QStringLiteral("tint"), 0).toFloat();
+    p.highlights = m.value(QStringLiteral("highlights"), 0).toFloat();
+    p.shadows = m.value(QStringLiteral("shadows"), 0).toFloat();
+    const QVariantList crop = m.value(QStringLiteral("crop")).toList();
+    if (crop.size() == 4)
+        p.crop = SkRect::MakeXYWH(crop[0].toFloat(), crop[1].toFloat(), crop[2].toFloat(), crop[3].toFloat());
     return p;
 }
 

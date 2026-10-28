@@ -67,6 +67,7 @@ Editor::Editor(QObject* parent)
     m_tools["vectorEdit"] = std::make_unique<VectorEditTool>(*this);
     m_tools["scale"] = std::make_unique<ScaleTool>(*this);
     m_tools["eyedropper"] = std::make_unique<EyedropperTool>(*this);
+    m_tools["crop"] = std::make_unique<CropTool>(*this);
     setTool(QStringLiteral("select"));
 
     connect(m_doc.get(), &Document::changed, this, &Editor::onDocChanged);

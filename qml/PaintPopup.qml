@@ -180,6 +180,31 @@ Popup {
                     { value: "CROP", text: qsTr("Crop") }, { value: "TILE", text: qsTr("Tile") }]
                 onPicked: v => { const p = root.copy(); p.scaleMode = v; root.edited(p, false) }
             }
+            Button {
+                Layout.fillWidth: true
+                text: qsTr("Crop on canvas")
+                onClicked: { root.close(); editor.enterCrop() }
+            }
+            // Adjustments, -100..100 like Figma (stored -1..1).
+            Repeater {
+                model: [{ key: "exposure", text: qsTr("Exposure") }, { key: "contrast", text: qsTr("Contrast") },
+                    { key: "saturation", text: qsTr("Saturation") }, { key: "temperature", text: qsTr("Temperature") },
+                    { key: "tint", text: qsTr("Tint") }, { key: "highlights", text: qsTr("Highlights") },
+                    { key: "shadows", text: qsTr("Shadows") }]
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Text { text: modelData.text; color: Theme.textDim; font.pixelSize: Theme.fontSize; Layout.preferredWidth: 72 }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: -1; to: 1
+                        value: root.paint[modelData.key] || 0
+                        onMoved: { const p = root.copy(); p[modelData.key] = value; root.edited(p, true) }
+                        onPressedChanged: if (!pressed) { const p = root.copy(); p[modelData.key] = value; root.edited(p, false) }
+                    }
+                    Text { text: Math.round((root.paint[modelData.key] || 0) * 100); color: Theme.textFaint; font.pixelSize: 10; Layout.preferredWidth: 26; horizontalAlignment: Text.AlignRight }
+                }
+            }
         }
 
         ColorArea {

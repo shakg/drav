@@ -227,6 +227,8 @@ public:
     void scaleNodes(const std::vector<NodeId>& ids, float factor, SkPoint anchor);
     // Eyedropper: the next canvas click reports a color through colorPicked() instead of filling.
     Q_INVOKABLE void pickColor();
+    // Crop the first image fill of the selected layer (switches it to crop mode).
+    Q_INVOKABLE void enterCrop();
     bool pickingForPopup() const { return m_pickForPopup; }
     void finishPick(SkColor4f c, bool apply);
     SkColor4f sampleColor(SkPoint page);

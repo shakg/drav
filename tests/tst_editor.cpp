@@ -7,6 +7,7 @@
 #include <QKeyEvent>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <QImage>
 #include <QStandardPaths>
 
 using namespace drav;
@@ -594,6 +595,43 @@ private slots:
         QString v = ed->addVariable(coll, "COLOR", "Brand/Primary");
         ed->bindVariable("fills/0", v);
         QVERIFY(ed->inspectCode().contains("var(--brand-primary, #FFFFFF)"));
+    }
+
+    void imageAdjustAndCrop()
+    {
+        // A 4x2 image: left half red, right half blue.
+        QImage img(4, 2, QImage::Format_ARGB32);
+        for (int x = 0; x < 4; ++x)
+            for (int y = 0; y < 2; ++y)
+                img.setPixelColor(x, y, x < 2 ? Qt::red : Qt::blue);
+        QTemporaryDir tmp;
+        const QString path = tmp.filePath("img.png");
+        img.save(path);
+        QVERIFY(ed->importFile(QUrl::fromLocalFile(path)));
+        NodeId id = only().id;
+        ed->setProp("w", 100);
+        ed->setProp("h", 100);
+        // Fill framing of a 2:1 image in a square shows the middle half.
+        ed->enterCrop();
+        QCOMPARE(ed->toolName(), QStringLiteral("crop"));
+        const Paint& f = doc().at(id).p.fills.at(0);
+        QCOMPARE(f.scaleMode, ImageScaleMode::Crop);
+        QVERIFY(std::abs(f.crop.left() - 0.25f) < 1e-4f && std::abs(f.crop.width() - 0.5f) < 1e-4f);
+        key(Qt::Key_Escape);
+
+        // Adjustments survive save/load and change the rendered color.
+        QVariantList fills = ed->props().value("fills").toList();
+        QVariantMap m = fills[0].toMap();
+        m["saturation"] = -1.0;
+        ed->setProp("fills", QVariantList{m});
+        QCOMPARE(doc().at(id).p.fills[0].saturation, -1.f);
+        Document d2;
+        QVERIFY(io::load(d2, io::save(doc())));
+        QCOMPARE(d2.at(id).p.fills[0].saturation, -1.f);
+        QCOMPARE(d2.at(id).p.fills[0].crop, doc().at(id).p.fills[0].crop);
+        const SkPoint centerLeft = doc().worldTransform(id).mapXY(10, 50);
+        const SkColor4f c = ed->sampleColor(centerLeft);
+        QVERIFY(std::abs(c.fR - c.fG) < 0.05f && std::abs(c.fG - c.fB) < 0.05f); // grayscale
     }
 
     void svgImport()

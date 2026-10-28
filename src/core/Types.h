@@ -94,7 +94,15 @@ struct Paint {
     QString imageHash;
     ImageScaleMode scaleMode = ImageScaleMode::Fill;
     float imageScale = 1.f;
+    // Image adjustments, -1..1 (0 = unchanged).
+    float exposure = 0, contrast = 0, saturation = 0, temperature = 0, tint = 0, highlights = 0, shadows = 0;
+    // Crop mode: the part of the image (normalized 0..1 coordinates) shown in the layer's box.
+    SkRect crop = SkRect::MakeWH(1, 1);
     QString colorVar; // bound color variable id (solid paints)
+    bool hasAdjustments() const
+    {
+        return exposure || contrast || saturation || temperature || tint || highlights || shadows;
+    }
     bool operator==(const Paint&) const = default;
 
     static Paint solid(SkColor4f c)

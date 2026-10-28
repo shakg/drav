@@ -926,6 +926,157 @@ void ScaleTool::drawOverlay(SkCanvas* c)
     c->drawSimpleText(label.constData(), label.size(), SkTextEncoding::kUTF8, pill.left() + 5, pill.top() + 12.5f, font, p);
 }
 
+// ================================================================ CropTool
+
+void CropTool::begin(NodeId id, int paintIndex)
+{
+    m_node = id;
+    m_paint = paintIndex;
+    m_dragging = false;
+    ed.requestUpdate();
+}
+
+SkMatrix CropTool::toScreen() const
+{
+    return SkMatrix::Concat(ed.view(), ed.doc().worldTransform(m_node));
+}
+
+SkRect CropTool::imageRect(const SkRect& crop) const
+{
+    const Props& p = ed.doc().at(m_node).p;
+    const float w = p.width / std::max(crop.width(), 1e-4f), h = p.height / std::max(crop.height(), 1e-4f);
+    return SkRect::MakeXYWH(-crop.left() * w, -crop.top() * h, w, h);
+}
+
+int CropTool::cornerAt(QPointF s) const
+{
+    if (!ed.doc().isAttached(m_node))
+        return -1;
+    const Paint& paint = ed.doc().at(m_node).p.fills[m_paint];
+    SkPoint q[4];
+    imageRect(paint.crop).toQuad(q);
+    toScreen().mapPoints(q, 4);
+    for (int i = 0; i < 4; ++i)
+        if (std::fabs(q[i].x() - s.x()) <= 6 && std::fabs(q[i].y() - s.y()) <= 6)
+            return i;
+    return -1;
+}
+
+void CropTool::press(const InputEvent& e)
+{
+    if (!doc().isAttached(m_node) || m_paint < 0 || m_paint >= int(doc().at(m_node).p.fills.size())) {
+        ed.setTool(QStringLiteral("select"));
+        return;
+    }
+    SkMatrix inv;
+    if (!doc().worldTransform(m_node).invert(&inv))
+        return;
+    m_corner = cornerAt(e.screen);
+    m_startLocal = inv.mapPoint(e.page);
+    m_startImage = imageRect(doc().at(m_node).p.fills[m_paint].crop);
+    if (m_corner < 0 && !m_startImage.contains(m_startLocal.x(), m_startLocal.y())
+        && !doc().at(m_node).localRect().contains(m_startLocal.x(), m_startLocal.y())) {
+        ed.setTool(QStringLiteral("select")); // click outside ends cropping
+        return;
+    }
+    m_dragging = true;
+    doc().breakMerge();
+    doc().begin(QObject::tr("Crop image"));
+}
+
+void CropTool::move(const InputEvent& e)
+{
+    if (!m_dragging) {
+        const int c = cornerAt(e.screen);
+        m_cursor = c < 0 ? Qt::SizeAllCursor : (c % 2 == 0 ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor);
+        return;
+    }
+    SkMatrix inv;
+    if (!doc().worldTransform(m_node).invert(&inv))
+        return;
+    const SkPoint local = inv.mapPoint(e.page);
+    SkRect img = m_startImage;
+    if (m_corner < 0) {
+        img.offset(local.x() - m_startLocal.x(), local.y() - m_startLocal.y());
+    } else {
+        // Scale about the opposite corner, keeping the image's aspect ratio.
+        SkPoint q[4];
+        m_startImage.toQuad(q);
+        const SkPoint fixed = q[(m_corner + 2) % 4];
+        const float f = std::max(std::fabs(local.x() - fixed.x()) / m_startImage.width(),
+            std::fabs(local.y() - fixed.y()) / m_startImage.height());
+        const float w = std::max(1.f, m_startImage.width() * f), h = std::max(1.f, m_startImage.height() * f);
+        const float l = (m_corner == 0 || m_corner == 3) ? fixed.x() - w : fixed.x();
+        const float t = (m_corner == 0 || m_corner == 1) ? fixed.y() - h : fixed.y();
+        img = SkRect::MakeXYWH(l, t, w, h);
+    }
+    const Props& p = doc().at(m_node).p;
+    const SkRect crop = SkRect::MakeXYWH(-img.left() / img.width(), -img.top() / img.height(), p.width / img.width(),
+        p.height / img.height());
+    doc().cancel();
+    doc().begin(QObject::tr("Crop image"));
+    doc().edit(m_node).fills[m_paint].crop = crop;
+    doc().updateDerived();
+    ed.requestUpdate();
+}
+
+void CropTool::release(const InputEvent&)
+{
+    if (!m_dragging)
+        return;
+    m_dragging = false;
+    doc().commit();
+}
+
+bool CropTool::key(QKeyEvent* e)
+{
+    if (e->key() == Qt::Key_Escape || e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
+        ed.setTool(QStringLiteral("select"));
+        return true;
+    }
+    return false;
+}
+
+void CropTool::deactivate()
+{
+    if (m_dragging) {
+        m_dragging = false;
+        doc().commit();
+    }
+    if (doc().isAttached(m_node))
+        ed.select({m_node});
+    m_node = kNoNode;
+}
+
+void CropTool::drawOverlay(SkCanvas* c)
+{
+    if (!doc().isAttached(m_node) || m_paint < 0 || m_paint >= int(doc().at(m_node).p.fills.size()))
+        return;
+    const SkMatrix m = toScreen();
+    const SkRect img = imageRect(doc().at(m_node).p.fills[m_paint].crop);
+    // Dim the parts of the image outside the layer.
+    SkPath outside;
+    outside.addRect(img);
+    outside.addRect(doc().at(m_node).localRect());
+    outside.setFillType(SkPathFillType::kEvenOdd);
+    SkPaint dim;
+    dim.setAntiAlias(true);
+    dim.setColor(SkColorSetARGB(0x55, 0x80, 0x80, 0x80));
+    c->drawPath(outside.makeTransform(m), dim);
+    SkPaint line;
+    line.setAntiAlias(true);
+    line.setStyle(SkPaint::kStroke_Style);
+    line.setColor(kBlue);
+    line.setStrokeWidth(1);
+    c->drawPath(SkPath::Rect(img).makeTransform(m), line);
+    c->drawPath(SkPath::Rect(doc().at(m_node).localRect()).makeTransform(m), line);
+    SkPoint q[4];
+    img.toQuad(q);
+    m.mapPoints(q, 4);
+    for (const SkPoint& pt : q)
+        drawHandle(c, pt, false, false, 8);
+}
+
 // ================================================================ EyedropperTool
 
 void EyedropperTool::move(const InputEvent& e)

@@ -1,6 +1,7 @@
 // Rulers, page guides, Alt-hover measurements, scaling and the eyedropper.
 
 #include "Editor.h"
+#include "Tools.h"
 
 #include "core/Text.h"
 
@@ -266,6 +267,41 @@ void Editor::scaleSelection(double factor)
     m_doc->begin(tr("Scale"));
     scaleNodes(ids, float(factor), {b.left(), b.top()});
     m_doc->commit();
+}
+
+// ---------------------------------------------------------------- crop
+
+void Editor::enterCrop()
+{
+    auto sel = selected();
+    if (sel.size() != 1)
+        return;
+    const NodeId id = sel.front();
+    const Props& p = m_doc->at(id).p;
+    int index = -1;
+    for (int i = int(p.fills.size()) - 1; i >= 0 && index < 0; --i)
+        if (p.fills[i].type == PaintType::Image)
+            index = i;
+    if (index < 0)
+        return;
+    if (p.fills[index].scaleMode != ImageScaleMode::Crop) {
+        // Start from what the layer shows now (fill framing) so nothing jumps.
+        SkRect crop = SkRect::MakeWH(1, 1);
+        if (sk_sp<SkImage> img = m_renderer->image(p.fills[index].imageHash)) {
+            const float iw = img->width(), ih = img->height();
+            const float s = std::max(p.width / iw, p.height / ih);
+            const float vw = p.width / (iw * s), vh = p.height / (ih * s);
+            crop = SkRect::MakeXYWH((1 - vw) / 2, (1 - vh) / 2, vw, vh);
+        }
+        m_doc->breakMerge();
+        m_doc->begin(tr("Crop image"));
+        Paint& f = m_doc->edit(id).fills[index];
+        f.scaleMode = ImageScaleMode::Crop;
+        f.crop = crop;
+        m_doc->commit();
+    }
+    setTool(QStringLiteral("crop"));
+    static_cast<CropTool*>(m_tool)->begin(id, index);
 }
 
 // ---------------------------------------------------------------- eyedropper
