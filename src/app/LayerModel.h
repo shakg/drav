@@ -13,6 +13,8 @@ class Editor;
 // Flattened layer tree of the current page, topmost layer first (like Figma's layer list).
 class LayerModel : public QAbstractListModel {
     Q_OBJECT
+    // Non-empty: a flat list of layers whose name (or text) contains the filter, case-insensitive.
+    Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
 public:
     enum Role {
         IdRole = Qt::UserRole + 1,
@@ -37,6 +39,13 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void sync();
+    QString filter() const { return m_filter; }
+    void setFilter(const QString& f);
+
+signals:
+    void filterChanged();
+
+public:
     void setExpanded(NodeId id, bool expanded);
 
     // Where a drop on `row` at vertical fraction `pos` (0..1) lands: {parent, index} in document order.
@@ -60,6 +69,7 @@ private:
     Editor* m_editor;
     std::vector<Row> m_rows;
     std::unordered_set<NodeId> m_expanded;
+    QString m_filter;
 };
 
 } // namespace drav

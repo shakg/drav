@@ -67,6 +67,7 @@ public:
     void redo();
     bool isDirty() const { return m_savedUndoDepth != (int)m_undo.size() || m_dirtyNoUndo; }
     void markSaved();
+    void markDirty() { m_dirtyNoUndo = true; emit undoStateChanged(); }
 
     // ---- selection (not undoable itself, but restored by undo) ----
     const std::vector<NodeId>& selection() const { return m_selection; }

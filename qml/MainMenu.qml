@@ -8,6 +8,8 @@ Menu {
     signal saveAsRequested()
     signal importRequested()
     signal exportRequested()
+    signal versionsRequested()
+    signal findRequested()
 
     component Item_: MenuItem {
         property string shortcut
@@ -25,6 +27,24 @@ Menu {
         Item_ { text: qsTr("Open…"); shortcut: "Ctrl+O"; onTriggered: root.openRequested() }
         Item_ { text: qsTr("Save"); shortcut: "Ctrl+S"; onTriggered: if (!editor.save()) root.saveAsRequested() }
         Item_ { text: qsTr("Save as…"); shortcut: "Ctrl+Shift+S"; onTriggered: root.saveAsRequested() }
+        Menu {
+            id: recentMenu
+            title: qsTr("Open recent")
+            enabled: editor.recentFiles.length > 0
+            Instantiator {
+                model: editor.recentFiles
+                delegate: MenuItem {
+                    required property string modelData
+                    text: modelData.substring(modelData.lastIndexOf("/") + 1)
+                    onTriggered: editor.open("file://" + modelData)
+                }
+                onObjectAdded: (i, o) => recentMenu.insertItem(i, o)
+                onObjectRemoved: (i, o) => recentMenu.removeItem(o)
+            }
+            MenuSeparator {}
+            MenuItem { text: qsTr("Clear recent"); onTriggered: editor.clearRecentFiles() }
+        }
+        Item_ { text: qsTr("Version history…"); onTriggered: root.versionsRequested() }
         MenuSeparator {}
         Item_ { text: qsTr("Place image / SVG…"); shortcut: "Ctrl+Shift+K"; onTriggered: root.importRequested() }
         Item_ { text: qsTr("Export…"); shortcut: "Ctrl+Shift+E"; onTriggered: root.exportRequested() }
@@ -46,6 +66,8 @@ Menu {
         MenuSeparator {}
         Item_ { text: qsTr("Select all"); shortcut: "Ctrl+A"; onTriggered: editor.selectAll() }
         Item_ { text: qsTr("Select none"); shortcut: "Esc"; onTriggered: editor.selectNone() }
+        Item_ { text: qsTr("Select matching layers"); shortcut: "Ctrl+Alt+A"; onTriggered: editor.selectSame("matching") }
+        Item_ { text: qsTr("Find and replace…"); shortcut: "Ctrl+F"; onTriggered: root.findRequested() }
     }
     Menu {
         title: qsTr("View")

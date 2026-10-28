@@ -10,7 +10,7 @@ ColumnLayout {
 
     Section {
         id: missing
-        readonly property var fonts: { editor.library; editor.undoChanged; return editor.missingFonts() }
+        readonly property var fonts: { editor.library; editor.props; return editor.missingFonts() }
         visible: fonts.length > 0
         title: qsTr("Missing fonts")
         Repeater {

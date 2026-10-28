@@ -73,6 +73,7 @@ class Editor : public QObject {
     Q_PROPERTY(double fps READ fps NOTIFY fpsChanged)
     Q_PROPERTY(QVariantMap library READ library NOTIFY libraryChanged)
     Q_PROPERTY(bool rulers READ rulers WRITE setRulers NOTIFY viewChanged)
+    Q_PROPERTY(QStringList recentFiles READ recentFiles NOTIFY recentFilesChanged)
 
 public:
     explicit Editor(QObject* parent = nullptr);
@@ -153,6 +154,15 @@ public:
     Q_INVOKABLE void selectParent();
     Q_INVOKABLE void selectNode(qint64 id, bool additive);
     Q_INVOKABLE void selectRange(qint64 id);
+    // Selects layers on the page like the first selected one. what: "matching" (type, fills,
+    // strokes, effects), "fill", "stroke", "effect", "font", "instance" (same main component), "type".
+    Q_INVOKABLE void selectSame(const QString& what);
+    // Find in text layers (and layer names). Returns matching layer ids on the current page.
+    Q_INVOKABLE QVariantList findLayers(const QString& query, bool caseSensitive, bool names) const;
+    Q_INVOKABLE int replaceText(const QString& query, const QString& replacement, bool caseSensitive, bool names);
+    // Renames the selection. In `pattern`, $& is the current name, $n counts up from `start` and
+    // $N counts down; an empty pattern keeps the name. `find` -> `replace` applies afterwards.
+    Q_INVOKABLE void renameLayers(const QString& pattern, const QString& find, const QString& replace, int start);
 
     // ---- overlay state for tools ----
     std::vector<SnapGuide> guides;
@@ -294,6 +304,21 @@ public:
     QString status() const { return m_status; }
     void setStatus(const QString& s);
 
+    // ---- data safety (EditorSafety.cpp) ----
+    QStringList recentFiles() const;
+    Q_INVOKABLE void clearRecentFiles();
+    // Unsaved work is written to a recovery file every 30 s; a crash leaves it for the next start.
+    Q_INVOKABLE QVariantList recoveryFiles() const; // [{path, original, name, time}]
+    Q_INVOKABLE bool recover(const QString& path);
+    Q_INVOKABLE void discardRecovery(const QString& path);
+    Q_INVOKABLE void discardChanges(); // the user closed without saving: drop this session's recovery file
+    void autosaveNow();
+    QString recoveryPath() const;
+    // Named versions of the document, kept in the app data folder per file.
+    Q_INVOKABLE bool saveVersion(const QString& name);
+    Q_INVOKABLE QVariantList versions() const; // [{path, name, time}], newest first
+    Q_INVOKABLE bool restoreVersion(const QString& path);
+
     // Places nodes created by tools: parent container for a point.
     NodeId parentForNewNode(SkPoint page) const;
     // Default props for new shapes.
@@ -319,7 +344,11 @@ signals:
     void fpsChanged();
     void libraryChanged();
     void requestRename(qint64 id);
+    void requestBulkRename();
+    void requestFind();
     void colorPicked(const QColor& color);
+    void recentFilesChanged();
+    void versionsChanged();
 
 private:
     void onDocChanged(bool structure);
@@ -381,6 +410,10 @@ private:
     } m_guideDrag;
     int m_guideHover = -1;
     bool m_pickForPopup = false;
+    QString m_sessionId; // names this document's recovery file
+    void addRecent(const QString& path);
+    QString versionsDir() const;
+    void newSession();
     QString m_toolBeforePick;
 };
 

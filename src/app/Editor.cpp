@@ -16,10 +16,12 @@
 #include <include/core/SkRRect.h>
 
 #include <QFile>
+#include <QDateTime>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QKeyEvent>
 #include <QSaveFile>
+#include <QTimer>
 
 #include <cmath>
 
@@ -77,9 +79,23 @@ Editor::Editor(QObject* parent)
         requestUpdate();
     });
     m_layers->sync();
+
+    newSession();
+    auto* autosave = new QTimer(this);
+    autosave->setInterval(30000);
+    connect(autosave, &QTimer::timeout, this, [this] {
+        if (m_doc->isDirty())
+            autosaveNow();
+    });
+    autosave->start();
 }
 
-Editor::~Editor() = default;
+Editor::~Editor()
+{
+    // A clean exit with nothing unsaved needs no recovery file.
+    if (!m_doc->isDirty())
+        QFile::remove(recoveryPath());
+}
 
 QObject* Editor::layersObject() const { return m_layers; }
 
@@ -392,7 +408,12 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_X: cut(); return true;
         case Qt::Key_V: shift ? pasteInPlace() : paste(); return true;
         case Qt::Key_D: duplicate(); return true;
-        case Qt::Key_A: selectAll(); return true;
+        case Qt::Key_A:
+            if (alt)
+                selectSame(QStringLiteral("matching"));
+            else
+                selectAll();
+            return true;
         case Qt::Key_G:
             if (alt)
                 frameSelection();
@@ -419,7 +440,13 @@ bool Editor::keyPress(QKeyEvent* e)
         case Qt::Key_M: if (alt) { useAsMask(); return true; } return false;
         case Qt::Key_O: if (shift) { outlineStroke(); return true; } return false;
         case Qt::Key_Y: setOutlines(!outlines()); return true;
-        case Qt::Key_R: if (selectionCount() == 1) emit requestRename(qint64(selected().front())); return true;
+        case Qt::Key_R:
+            if (selectionCount() == 1)
+                emit requestRename(qint64(selected().front()));
+            else if (selectionCount() > 1)
+                emit requestBulkRename();
+            return true;
+        case Qt::Key_F: emit requestFind(); return true;
         case Qt::Key_BracketRight: shift ? bringToFront() : bringForward(); return true;
         case Qt::Key_BracketLeft: shift ? sendToBack() : sendBackward(); return true;
         case Qt::Key_Equal:
@@ -1117,6 +1144,9 @@ QString Editor::fileName() const
 
 void Editor::newDocument()
 {
+    if (!m_doc->isDirty())
+        QFile::remove(recoveryPath());
+    newSession();
     setTool(QStringLiteral("select"));
     m_doc->clear();
     m_renderer->clear();
@@ -1151,7 +1181,11 @@ bool Editor::open(const QUrl& url)
         setStatus(err);
         return false;
     }
+    if (!m_doc->isDirty())
+        QFile::remove(recoveryPath());
+    newSession();
     m_fileUrl = QUrl::fromLocalFile(f.fileName());
+    addRecent(f.fileName());
     m_contentDirty = true;
     emit fileChanged();
     emit componentsChanged();
@@ -1185,6 +1219,13 @@ bool Editor::saveAs(const QUrl& url)
     }
     m_doc->markSaved();
     m_fileUrl = QUrl::fromLocalFile(path);
+    QFile::remove(recoveryPath());
+    QFile::remove(recoveryPath() + QStringLiteral(".json"));
+    addRecent(path);
+    // Keep an automatic version at most every 30 minutes.
+    const QVariantList vs = versions();
+    if (vs.isEmpty() || vs.front().toMap().value(QStringLiteral("time")).toDateTime().secsTo(QDateTime::currentDateTime()) > 1800)
+        saveVersion(tr("Autosave"));
     emit fileChanged();
     setStatus(tr("Saved %1").arg(fileName()));
     return true;

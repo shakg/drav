@@ -7,6 +7,7 @@
 #include <QKeyEvent>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <QStandardPaths>
 
 using namespace drav;
 
@@ -53,6 +54,12 @@ class TestEditor : public QObject {
     const Node& only() { return doc().at(doc().selection().at(0)); }
 
 private slots:
+    void initTestCase()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).removeRecursively();
+    }
+
     void init()
     {
         ed = std::make_unique<Editor>();
@@ -501,6 +508,75 @@ private slots:
         QCOMPARE(ed->toolName(), QStringLiteral("select"));
         const SkColor4f c = doc().at(b).p.fills.at(0).color;
         QVERIFY(c.fR > 0.99f && c.fG < 0.01f && c.fB < 0.01f);
+    }
+
+    void selectSameFindReplaceRename()
+    {
+        for (int i = 0; i < 3; ++i) {
+            ed->setTool("rect");
+            drag({100.0 + i * 150, 100}, {200.0 + i * 150, 200});
+            if (i < 2)
+                ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", QColor(Qt::red)}}});
+        }
+        ed->selectNode(qint64(doc().at(doc().currentPage()).children[0]), false);
+        ed->selectSame("fill");
+        QCOMPARE(doc().selection().size(), size_t(2));
+
+        ed->renameLayers("Card $n", "", "", 1);
+        QStringList names;
+        for (NodeId id : doc().at(doc().currentPage()).children)
+            names << doc().at(id).p.name;
+        QVERIFY(names.contains("Card 1") && names.contains("Card 2"));
+
+        ed->setTool("text");
+        click({100, 400});
+        type("Buy now. Buy later.");
+        key(Qt::Key_Escape);
+        QCOMPARE(ed->findLayers("buy", false, false).size(), 1);
+        QCOMPARE(ed->replaceText("Buy", "Get", true, false), 2);
+        QCOMPARE(only().p.text, QStringLiteral("Get now. Get later."));
+        QCOMPARE(ed->replaceText("Card", "Tile", true, true), 2);
+
+        auto* layers = static_cast<LayerModel*>(ed->layersObject());
+        layers->setFilter("tile");
+        QCOMPARE(layers->rowCount(), 2);
+        layers->setFilter("");
+    }
+
+    void autosaveRecoveryVersionsRecent()
+    {
+        ed->setTool("rect");
+        drag({100, 100}, {200, 200});
+        ed->autosaveNow();
+        {
+            // A later session finds the unsaved work and recovers it.
+            Editor other;
+            other.newDocument();
+            const QVariantList files = other.recoveryFiles();
+            QCOMPARE(files.size(), 1);
+            QVERIFY(other.recover(files[0].toMap().value("path").toString()));
+            QCOMPARE(other.doc().at(other.doc().currentPage()).children.size(), size_t(1));
+            QVERIFY(other.isDirty());
+            other.discardChanges();
+        }
+        ed->discardChanges();
+
+        QTemporaryDir tmp;
+        const QString path = tmp.filePath("v.drav");
+        QVERIFY(ed->saveAs(QUrl::fromLocalFile(path)));
+        QCOMPARE(ed->recentFiles().value(0), QFileInfo(path).absoluteFilePath());
+        QCOMPARE(ed->versions().size(), 1); // automatic version on first save
+        QVERIFY(ed->saveVersion("Before more shapes"));
+        ed->setTool("rect");
+        drag({300, 100}, {400, 200});
+        QCOMPARE(doc().at(doc().currentPage()).children.size(), size_t(2));
+        const QVariantList vs = ed->versions();
+        QCOMPARE(vs[0].toMap().value("name").toString(), QStringLiteral("Before more shapes"));
+        QVERIFY(ed->restoreVersion(vs[0].toMap().value("path").toString()));
+        QCOMPARE(doc().at(doc().currentPage()).children.size(), size_t(1));
+        QVERIFY(ed->isDirty());
+        QCOMPARE(ed->versions().value(0).toMap().value("name").toString(), QStringLiteral("Before restore"));
+        ed->discardChanges();
     }
 
     void svgImport()

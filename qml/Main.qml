@@ -59,6 +59,8 @@ ApplicationWindow {
                             onOpenRequested: openDialog.open()
                             onSaveAsRequested: saveDialog.open()
                             onImportRequested: importDialog.open()
+                            onVersionsRequested: versionsWindow.show()
+                            onFindRequested: findBar.show()
                             onExportRequested: { exportDialog.currentFile = "file:///" + editor.suggestedExportName("PNG"); exportDialog.open() }
                         }
                     }
@@ -103,6 +105,12 @@ ApplicationWindow {
                         spacing: 0
                         PagesList { Layout.fillWidth: true }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.panelBorder }
+                        TextBox {
+                            Layout.fillWidth: true
+                            Layout.margins: 6
+                            placeholder: qsTr("Search layers")
+                            onTextChanged: editor.layers.filter = text
+                        }
                         LayersPanel { Layout.fillWidth: true; Layout.fillHeight: true }
                     }
                     AssetsPanel { }
@@ -122,6 +130,13 @@ ApplicationWindow {
                 focus: true
                 Component.onCompleted: forceActiveFocus()
                 onContextMenuRequested: (x, y) => contextMenu.popup(canvas, x, y)
+            }
+            FindBar {
+                id: findBar
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: editor.rulers ? 28 : 10
+                z: 5
             }
             Toolbar {
                 onImportRequested: importDialog.open()
@@ -178,6 +193,54 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: editor
+        function onRequestFind() { findBar.show() }
+        function onRequestBulkRename() { renameDialog.open() }
+    }
+    RenameDialog { id: renameDialog }
+    VersionsWindow { id: versionsWindow; objectName: "versionsWindow" }
+
+    // Offer to recover work left by a crash.
+    Component.onCompleted: Qt.callLater(() => { recoveryDialog.files = editor.recoveryFiles(); if (recoveryDialog.files.length) recoveryDialog.open() })
+    Popup {
+        id: recoveryDialog
+        objectName: "recoveryDialog"
+        property var files: []
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 420
+        padding: 16
+        background: Rectangle { color: "#1e1e1e"; radius: 10; border.color: "#3a3a3a" }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Text { text: qsTr("Recover unsaved changes?"); color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("drav closed before these documents were saved.")
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSize
+            }
+            Repeater {
+                model: recoveryDialog.files
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Text { text: modelData.name; color: Theme.text; font.pixelSize: Theme.fontSize; font.weight: Font.DemiBold }
+                        Text { text: Qt.formatDateTime(modelData.time, "yyyy-MM-dd hh:mm") + (modelData.original ? " · " + modelData.original : ""); color: Theme.textFaint; font.pixelSize: 10; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                    }
+                    Button { text: qsTr("Recover"); onClicked: { editor.recover(modelData.path); recoveryDialog.close() } }
+                    Button { text: qsTr("Discard"); onClicked: { editor.discardRecovery(modelData.path); recoveryDialog.files = editor.recoveryFiles(); if (!recoveryDialog.files.length) recoveryDialog.close() } }
+                }
+            }
+            Button { Layout.alignment: Qt.AlignRight; text: qsTr("Later"); onClicked: recoveryDialog.close() }
+        }
+    }
+
     // ---------------- Canvas context menu
     Menu {
         id: contextMenu
@@ -185,6 +248,18 @@ ApplicationWindow {
         MenuItem { text: qsTr("Paste here"); onTriggered: editor.paste() }
         MenuItem { text: qsTr("Duplicate"); enabled: editor.selectionCount > 0; onTriggered: editor.duplicate() }
         MenuItem { text: qsTr("Delete"); enabled: editor.selectionCount > 0; onTriggered: editor.deleteSelection() }
+        MenuSeparator {}
+        Menu {
+            title: qsTr("Select")
+            enabled: editor.selectionCount > 0
+            MenuItem { text: qsTr("Matching layers"); onTriggered: editor.selectSame("matching") }
+            MenuItem { text: qsTr("Same fill"); onTriggered: editor.selectSame("fill") }
+            MenuItem { text: qsTr("Same stroke"); onTriggered: editor.selectSame("stroke") }
+            MenuItem { text: qsTr("Same effect"); onTriggered: editor.selectSame("effect") }
+            MenuItem { text: qsTr("Same font"); onTriggered: editor.selectSame("font") }
+            MenuItem { text: qsTr("Same instance"); onTriggered: editor.selectSame("instance") }
+        }
+        MenuItem { text: qsTr("Rename…"); enabled: editor.selectionCount > 1; onTriggered: renameDialog.open() }
         MenuSeparator {}
         MenuItem { text: qsTr("Bring to front"); enabled: editor.selectionCount > 0; onTriggered: editor.bringToFront() }
         MenuItem { text: qsTr("Send to back"); enabled: editor.selectionCount > 0; onTriggered: editor.sendToBack() }
@@ -243,7 +318,7 @@ ApplicationWindow {
         text: qsTr("Save changes to \"%1\" before closing?").arg(editor.fileName)
         buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
         onButtonClicked: (button, role) => {
-            if (button === MessageDialog.Discard) { window.forceClose = true; window.close() }
+            if (button === MessageDialog.Discard) { editor.discardChanges(); window.forceClose = true; window.close() }
             else if (button === MessageDialog.Save) {
                 window.forceClose = true
                 if (editor.save()) window.close(); else saveDialog.open()
