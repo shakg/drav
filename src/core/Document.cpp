@@ -116,8 +116,25 @@ void Document::commit()
     }
     txn->selAfter = m_selection;
     txn->pageAfter = m_currentPage;
+    const QString mergeKey = txn->mergeKey;
     const bool empty = txn->before.empty() && txn->ops.empty();
-    if (!empty) {
+    const bool merge = !empty && !txn->mergeKey.isEmpty() && txn->mergeKey == m_lastMergeKey && !m_undo.empty()
+        && m_savedUndoDepth != (int)m_undo.size();
+    if (merge) {
+        Txn& prev = *m_undo.back();
+        for (auto& [id, before] : txn->before)
+            if (!prev.before.count(id) && !prev.created.count(id))
+                prev.before.emplace(id, std::move(before));
+        prev.created.insert(txn->created.begin(), txn->created.end());
+        prev.ops.insert(prev.ops.end(), txn->ops.begin(), txn->ops.end());
+        prev.after.clear();
+        for (auto& [id, before] : prev.before)
+            prev.after[id] = at(id).p;
+        prev.selAfter = txn->selAfter;
+        prev.pageAfter = txn->pageAfter;
+        m_redo.clear();
+        emit undoStateChanged();
+    } else if (!empty) {
         if (m_savedUndoDepth > (int)m_undo.size())
             m_savedUndoDepth = -1; // saved state no longer reachable
         m_undo.push_back(std::move(txn));
@@ -128,7 +145,15 @@ void Document::commit()
         }
         emit undoStateChanged();
     }
+    if (!empty)
+        m_lastMergeKey = mergeKey;
     notify();
+}
+
+void Document::setMergeKey(const QString& key)
+{
+    if (m_txn)
+        m_txn->mergeKey = key;
 }
 
 void Document::cancel()
@@ -334,6 +359,7 @@ void Document::undo()
 {
     if (m_undo.empty() || m_depth > 0)
         return;
+    m_lastMergeKey.clear();
     auto txn = std::move(m_undo.back());
     m_undo.pop_back();
     for (auto it = txn->ops.rbegin(); it != txn->ops.rend(); ++it) {
@@ -361,6 +387,7 @@ void Document::redo()
 {
     if (m_redo.empty() || m_depth > 0)
         return;
+    m_lastMergeKey.clear();
     auto txn = std::move(m_redo.back());
     m_redo.pop_back();
     for (auto& op : txn->ops) {
@@ -699,9 +726,10 @@ void Document::markOverrides()
             continue;
         if (n->type() != NodeType::Instance && !isInsideInstance(id))
             continue;
+        // A new instance hasn't been synced from its main yet; differences aren't user overrides.
+        if (n->type() == NodeType::Instance && !n->p.sourceId && m_txn && m_txn->created.count(id))
+            continue;
         std::uint32_t mask = diffOverrideMask(at(main).p, n->p);
-        if (n->type() == NodeType::Instance && !n->p.sourceId)
-            mask &= ~(OvSize | OvName | OvLayout);
         if (n->type() == NodeType::Instance && n->p.componentId != at(main).p.componentId && n->p.sourceId)
             mask |= OvComponent;
         if ((n->p.overrides | mask) != n->p.overrides) {
@@ -754,10 +782,12 @@ void Document::syncInstance(NodeId inst)
     const Props& cp = at(comp).p;
     {
         Props next = in.p;
-        std::uint32_t keep = in.p.overrides | OvSize | OvName | OvLayout;
-        if (in.p.sourceId)
-            keep = in.p.overrides;
-        copyNonOverridden(next, cp, keep, true);
+        // A fresh instance also takes the main's resizing behavior.
+        if (in.children.empty() && !in.p.overrides) {
+            next.layoutChild.sizingH = cp.layoutChild.sizingH;
+            next.layoutChild.sizingV = cp.layoutChild.sizingV;
+        }
+        copyNonOverridden(next, cp, in.p.overrides, !in.p.sourceId);
         next.type = NodeType::Instance;
         next.componentId = comp;
         if (!(next == in.p))

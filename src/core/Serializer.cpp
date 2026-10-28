@@ -166,7 +166,6 @@ QCborMap propsToCbor(const Props& p)
     m[K("name")] = p.name;
     if (!p.visible) m[K("visible")] = false;
     if (p.locked) m[K("locked")] = true;
-    if (p.expanded) m[K("expanded")] = true;
     if (p.opacity != 1) m[K("opacity")] = p.opacity;
     m[K("blend")] = int(p.blend);
     if (p.isMask) m[K("isMask")] = true;
@@ -261,7 +260,6 @@ Props propsFromCbor(const QCborMap& m)
     p.name = str(m, "name");
     p.visible = flag(m, "visible", true);
     p.locked = flag(m, "locked");
-    p.expanded = flag(m, "expanded");
     p.opacity = num(m, "opacity", 1);
     p.blend = BlendMode(integer(m, "blend", int(BlendMode::PassThrough)));
     p.isMask = flag(m, "isMask");

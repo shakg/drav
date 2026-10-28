@@ -40,6 +40,9 @@ public:
     // ---- transactions ----
     void begin(const QString& label);
     void commit();
+    // Successive commits with the same non-empty key fold into one undo step (typing, nudging, scrubbing).
+    void setMergeKey(const QString& key);
+    void breakMerge() { m_lastMergeKey.clear(); }
     void cancel(); // revert everything since begin()
     bool inTransaction() const { return m_depth > 0; }
 
@@ -130,6 +133,7 @@ private:
     };
     struct Txn {
         QString label;
+        QString mergeKey;
         std::unordered_map<NodeId, Props> before;
         std::unordered_map<NodeId, Props> after;
         std::unordered_set<NodeId> created;
@@ -169,6 +173,8 @@ private:
     bool m_structureChanged = false;
     std::unordered_set<NodeId> m_dirty;       // touched since last updateDerived
     std::unordered_set<NodeId> m_userEdited;  // touched by user edits since last updateDerived
+
+    QString m_lastMergeKey;
 
     std::vector<NodeId> m_selection;
     QHash<QString, QByteArray> m_images;

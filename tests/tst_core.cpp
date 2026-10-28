@@ -303,6 +303,46 @@ private slots:
         QCOMPARE(d.at(d.at(oNested).children[0]).p.fills[0].color, SkColors::kRed);
     }
 
+    void instanceInAutoLayoutRow()
+    {
+        // Hugging auto-layout component instanced twice inside an auto-layout row.
+        Document d;
+        d.begin("x");
+        Props b;
+        b.type = NodeType::Component;
+        b.layout.mode = LayoutMode::Horizontal;
+        b.layout.padL = b.layout.padR = 20;
+        b.layout.padT = b.layout.padB = 12;
+        b.layoutChild.sizingH = b.layoutChild.sizingV = LayoutSizing::Hug;
+        b.fills = {Paint::solid(SkColors::kBlue)};
+        NodeId comp = d.create(b, page(d));
+        Props t;
+        t.type = NodeType::Text;
+        t.text = QStringLiteral("Get started");
+        d.create(t, comp);
+        Props row;
+        row.type = NodeType::Frame;
+        row.layout.mode = LayoutMode::Horizontal;
+        row.layout.spacing = 10;
+        row.layoutChild.sizingH = row.layoutChild.sizingV = LayoutSizing::Hug;
+        NodeId rowId = d.create(row, page(d));
+        Props ip;
+        ip.type = NodeType::Instance;
+        ip.componentId = comp;
+        NodeId i1 = d.create(ip, rowId);
+        NodeId i2 = d.create(ip, rowId);
+        d.updateDerived();
+        d.edit(d.at(i2).children.front()).text = QStringLiteral("Learn more");
+        d.commit();
+        const float cw = d.at(comp).p.width;
+        QVERIFY(cw > 60);
+        QCOMPARE(d.at(i1).p.width, cw);
+        QCOMPARE(d.at(i1).p.fills.size(), size_t(1));
+        QVERIFY(d.at(i2).p.width > cw);
+        QCOMPARE(d.at(i2).p.transform.getTranslateX(), cw + 10);
+        QCOMPARE(d.at(rowId).p.width, cw + 10 + d.at(i2).p.width);
+    }
+
     void serializeRoundTrip()
     {
         Document d;

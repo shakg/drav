@@ -95,6 +95,30 @@ QStringList families()
     return state().families;
 }
 
+SkFont uiFont(float size, bool bold)
+{
+    static sk_sp<SkTypeface> regular, semibold;
+    if (!regular) {
+        auto pick = [](int weight) -> sk_sp<SkTypeface> {
+            auto tfs = fonts()->findTypefaces({SkString("Inter")}, SkFontStyle(weight, 5, SkFontStyle::kUpright_Slant));
+            sk_sp<SkTypeface> tf = tfs.empty() ? fontMgr()->legacyMakeTypeface(nullptr, SkFontStyle()) : tfs.front();
+            if (!tf)
+                return tf;
+            SkFontArguments::VariationPosition::Coordinate c{SkSetFourByteTag('w', 'g', 'h', 't'), float(weight)};
+            SkFontArguments args;
+            args.setVariationDesignPosition({&c, 1});
+            sk_sp<SkTypeface> v = tf->makeClone(args);
+            return v ? v : tf;
+        };
+        regular = pick(400);
+        semibold = pick(600);
+    }
+    SkFont f(bold ? semibold : regular, size);
+    f.setSubpixel(true);
+    f.setEdging(SkFont::Edging::kAntiAlias);
+    return f;
+}
+
 QString applyCase(const QString& s, TextCase c)
 {
     switch (c) {

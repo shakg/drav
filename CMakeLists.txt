@@ -13,7 +13,7 @@ endif()
 
 option(DRAV_BUILD_TESTS "Build unit tests" ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Quick QuickControls2 OpenGL Test)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 OpenGL Test)
 include(cmake/Skia.cmake)
 
 qt_standard_project_setup(REQUIRES 6.8)

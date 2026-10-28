@@ -39,33 +39,41 @@ std::uint32_t diffOverrideMask(const Props& a, const Props& b)
     return m;
 }
 
-void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRoot)
+void copyGroups(Props& dst, const Props& src, std::uint32_t mask)
 {
-    if (!(ov & OvName)) dst.name = src.name;
-    if (!(ov & OvVisible)) dst.visible = src.visible;
-    if (!(ov & OvOpacity)) dst.opacity = src.opacity;
-    if (!(ov & OvBlend)) dst.blend = src.blend;
-    if (!(ov & OvFills)) dst.fills = src.fills;
-    if (!(ov & OvStrokes)) dst.strokes = src.strokes;
-    if (!(ov & OvStrokeStyle)) dst.stroke = src.stroke;
-    if (!(ov & OvEffects)) dst.effects = src.effects;
-    if (!(ov & OvText)) dst.text = src.text;
-    if (!(ov & OvTextStyle)) dst.textStyle = src.textStyle;
-    if (!(ov & OvCorners)) {
+    if (mask & OvName) dst.name = src.name;
+    if (mask & OvVisible) dst.visible = src.visible;
+    if (mask & OvOpacity) dst.opacity = src.opacity;
+    if (mask & OvBlend) dst.blend = src.blend;
+    if (mask & OvFills) dst.fills = src.fills;
+    if (mask & OvStrokes) dst.strokes = src.strokes;
+    if (mask & OvStrokeStyle) dst.stroke = src.stroke;
+    if (mask & OvEffects) dst.effects = src.effects;
+    if (mask & OvText) dst.text = src.text;
+    if (mask & OvTextStyle) dst.textStyle = src.textStyle;
+    if (mask & OvCorners) {
         dst.corners = src.corners;
         dst.cornerSmoothing = src.cornerSmoothing;
     }
-    if (!(ov & OvLayout)) {
+    if (mask & OvLayout) {
         dst.layout = src.layout;
         dst.clipsContent = src.clipsContent;
     }
-    if (!(ov & OvSize)) {
+    if (mask & OvSize) {
         dst.width = src.width;
         dst.height = src.height;
         dst.vector = src.vector;
     }
-    if (!(ov & OvComponent) && !isRoot) dst.componentId = src.componentId;
-    if (!(ov & OvVariantProps) && !isRoot) dst.variantProps = src.variantProps;
+    if (mask & OvComponent) dst.componentId = src.componentId;
+    if (mask & OvVariantProps) dst.variantProps = src.variantProps;
+}
+
+void copyNonOverridden(Props& dst, const Props& src, std::uint32_t ov, bool isRoot)
+{
+    std::uint32_t mask = ~ov;
+    if (isRoot)
+        mask &= ~(OvComponent | OvVariantProps);
+    copyGroups(dst, src, mask);
     dst.grids = src.grids;
     dst.arcStart = src.arcStart;
     dst.arcSweep = src.arcSweep;

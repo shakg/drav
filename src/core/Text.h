@@ -5,6 +5,8 @@
 #include <modules/skparagraph/include/FontCollection.h>
 #include <modules/skparagraph/include/Paragraph.h>
 
+#include <include/core/SkFont.h>
+
 #include <QStringList>
 
 #include <memory>
@@ -16,6 +18,8 @@ void init(const QStringList& extraFontFiles = {});
 sk_sp<skia::textlayout::FontCollection> fonts();
 sk_sp<SkFontMgr> fontMgr();
 QStringList families();
+// Font for editor chrome drawn on the canvas (labels, measurements).
+SkFont uiFont(float size, bool bold = false);
 
 QString applyCase(const QString& s, TextCase c);
 

@@ -34,7 +34,6 @@ struct Props {
     QString name;
     bool visible = true;
     bool locked = false;
-    bool expanded = false; // layer panel state
     float opacity = 1.f;
     BlendMode blend = BlendMode::PassThrough;
     bool isMask = false;
@@ -89,6 +88,8 @@ struct Props {
 };
 
 std::uint32_t diffOverrideMask(const Props& a, const Props& b);
+// Copies only the property groups named in `mask`.
+void copyGroups(Props& dst, const Props& src, std::uint32_t mask);
 // Copies main-component data into an instance node, skipping overridden groups.
 // Instance roots keep their own placement (constraints, layout participation, exports).
 void copyNonOverridden(Props& dst, const Props& src, std::uint32_t overrides, bool isRoot = false);
