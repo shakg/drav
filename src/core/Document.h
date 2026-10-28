@@ -115,6 +115,7 @@ public:
 
     // ---- styles and variables ----
     const Library& library() const;
+    ColorProfile colorProfile() const { return at(m_root).p.colorProfile; }
     std::shared_ptr<const Library> libraryPtr() const { return at(m_root).p.library; }
     // Inside a transaction: a fresh copy of the library to modify (undo keeps the old one).
     Library& editLibrary();

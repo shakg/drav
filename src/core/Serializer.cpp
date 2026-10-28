@@ -500,6 +500,8 @@ QCborMap propsToCbor(const Props& p)
         m[K("variableModes")] = stringMap(p.variableModes);
     if (p.library && !p.library->empty())
         m[K("library")] = libraryToCbor(*p.library);
+    if (p.colorProfile == ColorProfile::DisplayP3)
+        m[K("colorProfile")] = K("display-p3");
     return m;
 }
 
@@ -661,6 +663,8 @@ Props propsFromCbor(const QCborMap& m)
     p.variableModes = stringMap(m.value(K("variableModes")));
     if (m.contains(K("library")))
         p.library = std::make_shared<Library>(libraryFromCbor(m.value(K("library")).toMap()));
+    if (str(m, "colorProfile") == QLatin1String("display-p3"))
+        p.colorProfile = ColorProfile::DisplayP3;
     return p;
 }
 

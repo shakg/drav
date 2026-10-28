@@ -4,6 +4,7 @@
 #include "SvgImport.h"
 #include "Tools.h"
 
+#include "core/Color.h"
 #include "core/FigImport.h"
 #include "core/Geometry.h"
 #include "core/Serializer.h"
@@ -224,7 +225,8 @@ FrameSnapshot Editor::snapshot()
     }
     s.content = m_content;
     s.view = view();
-    s.background = m_doc->at(m_doc->currentPage()).p.pageBackground;
+    // The screen surface is sRGB; Skia converts document colors into it, the clear color by hand.
+    s.background = color::convert(m_doc->at(m_doc->currentPage()).p.pageBackground, m_doc->colorProfile(), ColorProfile::SRGB);
     SkPictureRecorder rec;
     SkCanvas* c = rec.beginRecording(SkRect::MakeWH(float(m_viewport.width()), float(m_viewport.height())));
     drawOverlay(c);

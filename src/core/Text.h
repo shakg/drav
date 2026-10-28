@@ -56,7 +56,8 @@ bool hasFamily(const QString& family);
 
 // Builds a paragraph from a text node and lays it out at the node's width
 // (or unbounded for auto-width). `color` is used when the text has a single solid fill.
-std::unique_ptr<skia::textlayout::Paragraph> build(const Props& p, float layoutWidth, SkColor4f color = SkColors::kBlack);
+std::unique_ptr<skia::textlayout::Paragraph> build(const Props& p, float layoutWidth, SkColor4f color = SkColors::kBlack,
+    ColorProfile profile = ColorProfile::SRGB);
 
 struct Metrics {
     float width = 0;  // natural width (max intrinsic)

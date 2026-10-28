@@ -66,6 +66,17 @@ Menu {
             MenuItem { text: qsTr("Clear recent"); onTriggered: editor.clearRecentFiles() }
         }
         Item_ { text: qsTr("Version history…"); onTriggered: root.versionsRequested() }
+        Menu {
+            title: qsTr("Color profile")
+            // Assigning keeps the color values; converting keeps how colors look.
+            Item_ { text: (editor.colorProfile === "srgb" ? "✓ " : "") + qsTr("sRGB"); onTriggered: editor.setColorProfile("srgb", false) }
+            Item_ { text: (editor.colorProfile === "display-p3" ? "✓ " : "") + qsTr("Display P3"); onTriggered: editor.setColorProfile("display-p3", false) }
+            MenuSeparator {}
+            Item_ {
+                text: editor.colorProfile === "srgb" ? qsTr("Convert colors to Display P3") : qsTr("Convert colors to sRGB")
+                onTriggered: editor.setColorProfile(editor.colorProfile === "srgb" ? "display-p3" : "srgb", true)
+            }
+        }
         MenuSeparator {}
         Item_ { text: qsTr("Place image / SVG…"); shortcut: "Ctrl+Shift+K"; onTriggered: root.importRequested() }
         Item_ { text: qsTr("Export…"); shortcut: "Ctrl+Shift+E"; onTriggered: root.exportRequested() }

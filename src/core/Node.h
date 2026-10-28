@@ -103,6 +103,7 @@ struct Props {
     QMap<QString, QString> bindings;      // bindable field key -> variable id (see Variables.h)
     QMap<QString, QString> variableModes; // collection id -> mode id, inherited by descendants
     std::shared_ptr<const Library> library; // Document node only; replaced (never mutated) on edit
+    ColorProfile colorProfile = ColorProfile::SRGB; // Document node only
 
     bool operator==(const Props&) const = default;
 };

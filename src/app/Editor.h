@@ -76,6 +76,7 @@ class Editor : public QObject {
     Q_PROPERTY(bool rulers READ rulers WRITE setRulers NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ recentFiles NOTIFY recentFilesChanged)
     Q_PROPERTY(QVariantList libraries READ libraries NOTIFY librariesChanged)
+    Q_PROPERTY(QString colorProfile READ colorProfile NOTIFY undoChanged)
 
 public:
     explicit Editor(QObject* parent = nullptr);
@@ -190,6 +191,10 @@ public:
     Q_INVOKABLE void copyAs(const QString& format);
     // Read-only code for the first selected layer and its direct children ("CSS").
     Q_INVOKABLE QString inspectCode() const;
+    // "srgb" or "display-p3". convert keeps colors looking the same (values change);
+    // otherwise the values are kept and reinterpreted in the new profile.
+    QString colorProfile() const;
+    Q_INVOKABLE void setColorProfile(const QString& profile, bool convert);
     Q_INVOKABLE void duplicate();
     Q_INVOKABLE void deleteSelection();
     Q_INVOKABLE void group();

@@ -77,6 +77,9 @@ struct ColorStop {
     bool operator==(const ColorStop&) const = default;
 };
 
+// Color space a document's colors are defined in. Display P3 uses the sRGB transfer curve.
+enum class ColorProfile : std::uint8_t { SRGB, DisplayP3 };
+
 enum class PaintType : std::uint8_t { Solid, LinearGradient, RadialGradient, AngularGradient, DiamondGradient, Image };
 enum class ImageScaleMode : std::uint8_t { Fill, Fit, Crop, Tile };
 

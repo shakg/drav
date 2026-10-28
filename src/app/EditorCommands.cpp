@@ -3,6 +3,7 @@
 #include "LayerModel.h"
 #include "Tools.h"
 
+#include "core/Color.h"
 #include "core/Geometry.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
@@ -121,6 +122,34 @@ void Editor::copyAs(const QString& format)
     else
         delete mime;
     setStatus(tr("Copied as %1").arg(format));
+}
+
+QString Editor::colorProfile() const
+{
+    return QString::fromLatin1(color::profileName(m_doc->colorProfile()));
+}
+
+void Editor::setColorProfile(const QString& profile, bool convert)
+{
+    const ColorProfile from = m_doc->colorProfile(), to = color::profileFromName(profile);
+    if (from == to)
+        return;
+    std::vector<NodeId> ids;
+    m_doc->walk(m_doc->root(), [&](const Node& n) {
+        ids.push_back(n.id);
+        return true;
+    });
+    m_doc->begin(tr("Change color profile"));
+    if (convert) {
+        auto f = [&](SkColor4f& c) { c = color::convert(c, from, to); };
+        for (NodeId id : ids)
+            color::forEachColor(m_doc->edit(id), f);
+        if (m_doc->libraryPtr())
+            color::forEachColor(m_doc->editLibrary(), f);
+    }
+    m_doc->edit(m_doc->root()).colorProfile = to;
+    m_doc->commit();
+    m_renderer->clear();
 }
 
 QString Editor::inspectCode() const

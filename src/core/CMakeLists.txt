@@ -7,6 +7,7 @@ add_library(drav_core STATIC
     Text.h Text.cpp
     Serializer.h Serializer.cpp
     Library.h Library.cpp
+    Color.h Color.cpp
     Variables.h Variables.cpp
     Libraries.h Libraries.cpp
     VectorNetwork.cpp

@@ -18,6 +18,8 @@ The engine is a bare `QJSEngine`: no network, no file system, no timers. Scripts
 | `drav.create(type, parent, props)` | Creates `"FRAME"`, `"RECTANGLE"`, `"ELLIPSE"`, `"TEXT"`, ...; returns its id. `parent` 0 means the current page |
 | `drav.remove(id)` | Deletes a layer |
 | `drav.find(name)` | Ids of layers on the current page whose name contains `name` (case-insensitive) |
+| `drav.colorProfile()` | `"srgb"` or `"display-p3"` |
+| `drav.setColorProfile(profile, convert)` | Changes the document's color profile. `convert` (default true) keeps colors looking the same; false keeps the values |
 | `drav.notify(message)` | Shows a message in the status bar |
 | `print(...)` | Writes to the console output |
 
@@ -34,3 +36,5 @@ the Plugins menu. The first lines may name it:
 ```
 
 Examples: [`examples/plugins`](../examples/plugins).
+
+`drav --script file.js [file.drav]` runs a script on startup and prints its output.

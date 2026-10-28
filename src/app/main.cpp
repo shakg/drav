@@ -58,7 +58,8 @@ int main(int argc, char* argv[])
     QCommandLineOption bench(QStringLiteral("bench"), QStringLiteral("Pan/zoom benchmark for N seconds, print FPS, quit."), QStringLiteral("seconds"));
     QCommandLineOption select(QStringLiteral("select"), QStringLiteral("Select a layer by name (\"Name#2\" picks the second match)."), QStringLiteral("name"));
     QCommandLineOption show(QStringLiteral("show"), QStringLiteral("Open a named window or popup (for screenshots)."), QStringLiteral("objectName"));
-    cli.addOptions({demo, shot, bench, select, show});
+    QCommandLineOption script(QStringLiteral("script"), QStringLiteral("Run a script file (see docs/scripting.md) after opening."), QStringLiteral("js"));
+    cli.addOptions({demo, shot, bench, select, show, script});
     cli.process(app);
 
     drav::Editor editor;
@@ -94,6 +95,11 @@ int main(int argc, char* argv[])
             });
             if (found)
                 editor.select({found});
+        }
+        if (cli.isSet(script)) {
+            const QString out = editor.runPlugin(cli.value(script));
+            if (!out.isEmpty())
+                qInfo().noquote() << out;
         }
     });
 

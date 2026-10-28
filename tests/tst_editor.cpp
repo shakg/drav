@@ -2,6 +2,7 @@
 #include "LayerModel.h"
 #include "Scripting.h"
 
+#include "core/Color.h"
 #include "core/Serializer.h"
 #include "core/Text.h"
 
@@ -896,6 +897,25 @@ private slots:
         const Node& g = doc().at(frame.children[0]);
         QCOMPARE(g.type(), NodeType::Group);
         QCOMPARE(doc().at(g.children[0]).p.fills[0].type, PaintType::LinearGradient);
+    }
+
+    void colorProfile()
+    {
+        ed->setTool("rect");
+        drag({10, 10}, {60, 60});
+        ed->setProp("fills", QVariantList{QVariantMap{{"type", "SOLID"}, {"color", "#336666"}}});
+        const SkColor4f before = only().p.fills[0].color;
+        ed->setColorProfile("display-p3", false); // assign: values kept
+        QCOMPARE(ed->colorProfile(), QStringLiteral("display-p3"));
+        QCOMPARE(only().p.fills[0].color, before);
+        ed->undo();
+        QCOMPARE(ed->colorProfile(), QStringLiteral("srgb"));
+        ed->setColorProfile("display-p3", true); // convert: appearance kept
+        const SkColor4f after = only().p.fills[0].color;
+        QVERIFY(after != before);
+        const SkColor4f back = color::convert(after, ColorProfile::DisplayP3, ColorProfile::SRGB);
+        QVERIFY(std::abs(back.fG - before.fG) < 0.002f);
+        QVERIFY(ed->inspectCode().contains("color(display-p3"));
     }
 };
 

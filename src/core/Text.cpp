@@ -1,5 +1,7 @@
 #include "Text.h"
 
+#include "Color.h"
+
 #include <include/core/SkFontMgr.h>
 #include <include/core/SkStream.h>
 #include <include/core/SkTypeface.h>
@@ -436,7 +438,7 @@ std::vector<Piece> pieces(const Props& p)
     return out;
 }
 
-skia::textlayout::TextStyle styleFor(const Props& p, const TextRun* r, SkColor4f color)
+skia::textlayout::TextStyle styleFor(const Props& p, const TextRun* r, SkColor4f color, ColorProfile profile)
 {
     const TextStyle& ts = p.textStyle;
     QString family = ts.family;
@@ -470,7 +472,13 @@ skia::textlayout::TextStyle styleFor(const Props& p, const TextRun* r, SkColor4f
     st.setFontArguments(args);
     for (auto it = ts.features.begin(); it != ts.features.end(); ++it)
         st.addFontFeature(SkString(it.key().toLatin1().constData()), it.value());
-    st.setColor(color.toSkColor());
+    if (profile == ColorProfile::SRGB) {
+        st.setColor(color.toSkColor());
+    } else {
+        SkPaint fg;
+        fg.setColor4f(color, color::space(profile).get());
+        st.setForegroundPaint(fg);
+    }
     st.setLetterSpacing(letter / 100.f * size);
     if (ts.lineHeight > 0) {
         const float px = ts.lineHeightPercent ? ts.lineHeight / 100.f * ts.size : ts.lineHeight;
@@ -482,7 +490,7 @@ skia::textlayout::TextStyle styleFor(const Props& p, const TextRun* r, SkColor4f
         st.setDecoration(skia::textlayout::TextDecoration::kUnderline);
     else if (deco == TextDecoration::Strikethrough)
         st.setDecoration(skia::textlayout::TextDecoration::kLineThrough);
-    st.setDecorationColor(color.toSkColor());
+    st.setDecorationColor(color::convert(color, profile, ColorProfile::SRGB).toSkColor());
     return st;
 }
 
@@ -533,11 +541,11 @@ bool hasFamily(const QString& family)
     return families().contains(family);
 }
 
-std::unique_ptr<Paragraph> build(const Props& p, float layoutWidth, SkColor4f color)
+std::unique_ptr<Paragraph> build(const Props& p, float layoutWidth, SkColor4f color, ColorProfile profile)
 {
     init();
     const TextStyle& ts = p.textStyle;
-    skia::textlayout::TextStyle st = styleFor(p, nullptr, color);
+    skia::textlayout::TextStyle st = styleFor(p, nullptr, color, profile);
 
     ParagraphStyle ps;
     ps.setTextStyle(st);
@@ -575,7 +583,7 @@ std::unique_ptr<Paragraph> build(const Props& p, float layoutWidth, SkColor4f co
             sp.setHeightOverride(true);
             builder->pushStyle(sp);
         } else {
-            builder->pushStyle(styleFor(p, pc.run, color));
+            builder->pushStyle(styleFor(p, pc.run, color, profile));
         }
         const TextCase tc = pc.run && (pc.run->mask & RunCase) ? pc.run->textCase : ts.textCase;
         const QByteArray u = applyCase(pc.text, tc).toUtf8();

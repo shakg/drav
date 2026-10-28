@@ -1,3 +1,4 @@
+#include "core/Color.h"
 #include "core/Document.h"
 #include "render/Export.h"
 #include "render/Renderer.h"
@@ -164,6 +165,32 @@ private slots:
         QVERIFY(!exporter::exportNode(d, page, exporter::Format::PNG).isEmpty());
         Renderer r(d);
         QVERIFY(r.recordPage(page));
+    }
+
+    void displayP3Export()
+    {
+        // A P3 document exports P3 pixels tagged with a P3 profile that look like the sRGB original.
+        const SkColor4f srgb = {0.2f, 0.6f, 0.4f, 1};
+        Document d;
+        d.begin("x");
+        d.edit(d.root()).colorProfile = ColorProfile::DisplayP3;
+        NodeId r = d.create(NodeType::Rectangle, d.currentPage());
+        d.resize(r, 10, 10);
+        d.edit(r).fills = {Paint::solid(color::convert(srgb, ColorProfile::SRGB, ColorProfile::DisplayP3))};
+        d.commit();
+        const QByteArray png = exporter::exportNode(d, r, exporter::Format::PNG, 1);
+        Renderer::registerCodecs();
+        auto img = SkImages::DeferredFromEncodedData(SkData::MakeWithCopy(png.constData(), png.size()));
+        QVERIFY(img && img->colorSpace());
+        QVERIFY(img->colorSpace()->gammaCloseToSRGB());
+        QVERIFY(!img->colorSpace()->isSRGB());
+        SkBitmap bm;
+        bm.allocPixels(SkImageInfo::MakeN32Premul(10, 10, SkColorSpace::MakeSRGB()));
+        QVERIFY(img->readPixels(nullptr, bm.pixmap(), 0, 0));
+        const SkColor px = bm.getColor(5, 5);
+        QVERIFY(std::abs(int(SkColorGetR(px)) - 51) <= 2);
+        QVERIFY(std::abs(int(SkColorGetG(px)) - 153) <= 2);
+        QVERIFY(std::abs(int(SkColorGetB(px)) - 102) <= 2);
     }
 };
 

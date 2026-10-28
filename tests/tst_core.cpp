@@ -1,3 +1,4 @@
+#include "core/Color.h"
 #include "core/Document.h"
 #include "core/FigImport.h"
 #include "core/Geometry.h"
@@ -983,6 +984,31 @@ private slots:
         QVERIFY(std::abs(b.width() - 100) < 0.01);
         QVERIFY(p.contains(50, 50));
         QVERIFY(!p.contains(1, 1));
+    }
+
+    void colorProfiles()
+    {
+        auto near = [](SkColor4f a, SkColor4f b) {
+            return std::abs(a.fR - b.fR) < 0.002f && std::abs(a.fG - b.fG) < 0.002f && std::abs(a.fB - b.fB) < 0.002f && a.fA == b.fA;
+        };
+        // sRGB fits inside P3, so the round trip is exact; P3 red falls outside sRGB and clamps.
+        const SkColor4f c = {0.2f, 0.6f, 0.4f, 0.5f};
+        const SkColor4f p3 = color::convert(c, ColorProfile::SRGB, ColorProfile::DisplayP3);
+        QVERIFY(!near(p3, c));
+        QVERIFY(near(color::convert(p3, ColorProfile::DisplayP3, ColorProfile::SRGB), c));
+        QVERIFY(near(color::convert({1, 0, 0, 1}, ColorProfile::DisplayP3, ColorProfile::SRGB), {1, 0, 0, 1}));
+        const SkColor4f red = color::convert({1, 0, 0, 1}, ColorProfile::SRGB, ColorProfile::DisplayP3);
+        QVERIFY(red.fR < 0.95f && red.fG > 0.1f);
+
+        Document d;
+        d.begin("x");
+        d.edit(d.root()).colorProfile = ColorProfile::DisplayP3;
+        d.commit();
+        Document e;
+        QVERIFY(io::load(e, io::save(d)));
+        QCOMPARE(e.colorProfile(), ColorProfile::DisplayP3);
+        QVERIFY(io::load(e, io::save(Document())));
+        QCOMPARE(e.colorProfile(), ColorProfile::SRGB);
     }
 };
 

@@ -2,6 +2,8 @@
 
 #include "Renderer.h"
 
+#include "core/Color.h"
+
 #include <include/core/SkCanvas.h>
 #include <include/core/SkDocument.h>
 #include <include/core/SkStream.h>
@@ -55,8 +57,10 @@ Target target(const Document& doc, NodeId id)
         for (NodeId c : n.children)
             b.join(doc.visualBounds(c));
         return {b, [&doc, id](SkCanvas* c, Renderer& r) {
-                    const Props& pp = doc.at(id).p;
-                    c->drawColor(pp.pageBackground);
+                    SkPaint bg;
+                    bg.setColor4f(doc.at(id).p.pageBackground, r.colorSpace());
+                    bg.setBlendMode(SkBlendMode::kSrc);
+                    c->drawPaint(bg);
                     for (NodeId k : doc.at(id).children)
                         r.drawNode(c, k, false);
                 }};
@@ -99,7 +103,9 @@ QByteArray exportNode(const Document& doc, NodeId id, Format format, float scale
 
     const int w = std::max(1, int(std::ceil(t.bounds.width() * scale)));
     const int h = std::max(1, int(std::ceil(t.bounds.height() * scale)));
-    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(w, h));
+    // Pixels are in the document's color space; encoders embed its ICC profile.
+    sk_sp<SkColorSpace> cs = color::space(doc.colorProfile());
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(w, h, cs ? cs : SkColorSpace::MakeSRGB()));
     if (!surface)
         return {};
     SkCanvas* c = surface->getCanvas();

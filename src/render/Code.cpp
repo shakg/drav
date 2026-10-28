@@ -14,11 +14,19 @@ QString num(float v)
     return std::fabs(r - std::round(r)) < 0.001f ? QString::number(int(std::round(r))) : QString::number(r, 'f', 2);
 }
 
+QString num3(float v) { return QString::number(std::round(std::clamp(v, 0.f, 1.f) * 1000) / 1000); }
+
 QString px(float v) { return v == 0 ? QStringLiteral("0") : num(v) + QStringLiteral("px"); }
 
-QString color(SkColor4f c, float opacity = 1)
+QString color(SkColor4f c, float opacity, ColorProfile profile)
 {
     const float a = c.fA * opacity;
+    if (profile == ColorProfile::DisplayP3) {
+        QString s = QStringLiteral("color(display-p3 %1 %2 %3").arg(num3(c.fR), num3(c.fG), num3(c.fB));
+        if (a < 0.999f)
+            s += QStringLiteral(" / ") + num(a);
+        return s + QLatin1Char(')');
+    }
     auto ch = [](float v) { return int(std::round(std::clamp(v, 0.f, 1.f) * 255)); };
     if (a >= 0.999f)
         return QStringLiteral("#%1%2%3")
@@ -58,6 +66,7 @@ QString css(const Document& doc, NodeId id)
 {
     const Node& n = doc.at(id);
     const Props& p = n.p;
+    const ColorProfile profile = doc.colorProfile();
     const Library& lib = doc.library();
     QStringList out;
     auto add = [&](const QString& k, const QString& v) { out << k + QStringLiteral(": ") + v + QLatin1Char(';'); };
@@ -162,7 +171,7 @@ QString css(const Document& doc, NodeId id)
         if (!f.visible)
             continue;
         if (f.type == PaintType::Solid) {
-            const QString c = bound(f.colorVar, color(f.color, f.opacity));
+            const QString c = bound(f.colorVar, color(f.color, f.opacity, profile));
             if (isText && textColor.isEmpty())
                 textColor = c;
             else
@@ -173,7 +182,7 @@ QString css(const Document& doc, NodeId id)
         } else {
             QStringList stops;
             for (const ColorStop& s : f.stops)
-                stops << color(s.color, f.opacity) + QLatin1Char(' ') + num(s.pos * 100) + QLatin1Char('%');
+                stops << color(s.color, f.opacity, profile) + QLatin1Char(' ') + num(s.pos * 100) + QLatin1Char('%');
             if (f.type == PaintType::LinearGradient) {
                 const float dx = (f.gradEnd.x() - f.gradStart.x()) * p.width, dy = (f.gradEnd.y() - f.gradStart.y()) * p.height;
                 const float deg = std::atan2(dx, -dy) * 180.f / 3.14159265f;
@@ -208,7 +217,7 @@ QString css(const Document& doc, NodeId id)
         if (!s.visible || s.type != PaintType::Solid || p.stroke.weight <= 0)
             continue;
         const QString style = p.stroke.dashes.empty() ? QStringLiteral("solid") : QStringLiteral("dashed");
-        const QString v = QStringLiteral("%1 %2 %3").arg(boundField("strokeWeight", px(p.stroke.weight)), style, bound(s.colorVar, color(s.color, s.opacity)));
+        const QString v = QStringLiteral("%1 %2 %3").arg(boundField("strokeWeight", px(p.stroke.weight)), style, bound(s.colorVar, color(s.color, s.opacity, profile)));
         if (p.stroke.align == StrokeAlign::Inside) {
             add(QStringLiteral("box-sizing"), QStringLiteral("border-box"));
             add(QStringLiteral("border"), v);
@@ -224,7 +233,7 @@ QString css(const Document& doc, NodeId id)
     for (const Effect& e : p.effects) {
         if (!e.visible)
             continue;
-        const QString c = bound(e.colorVar, color(e.color));
+        const QString c = bound(e.colorVar, color(e.color, 1, profile));
         switch (e.type) {
         case EffectType::DropShadow:
             shadows << (isText ? QStringLiteral("%1 %2 %3 %4") : QStringLiteral("%1 %2 %3 %5 %4"))

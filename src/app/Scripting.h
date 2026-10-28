@@ -30,6 +30,8 @@ public:
     Q_INVOKABLE qint64 create(const QString& type, qint64 parent, const QVariantMap& props = {});
     Q_INVOKABLE void remove(qint64 id);
     Q_INVOKABLE QVariantList find(const QString& name) const; // layers on the page whose name contains `name`
+    Q_INVOKABLE QString colorProfile() const; // "srgb" or "display-p3"
+    Q_INVOKABLE void setColorProfile(const QString& profile, bool convert = true);
     Q_INVOKABLE void notify(const QString& message);
     Q_INVOKABLE void log(const QVariant& value);
 

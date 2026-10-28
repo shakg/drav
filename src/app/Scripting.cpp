@@ -126,6 +126,10 @@ QVariantList ScriptApi::find(const QString& name) const
     return out;
 }
 
+QString ScriptApi::colorProfile() const { return m_ed.colorProfile(); }
+
+void ScriptApi::setColorProfile(const QString& profile, bool convert) { m_ed.setColorProfile(profile, convert); }
+
 void ScriptApi::notify(const QString& message)
 {
     m_ed.setStatus(message);

@@ -7,6 +7,7 @@
 #include <include/core/SkColorFilter.h>
 #include <include/effects/SkColorMatrix.h>
 
+#include "core/Color.h"
 #include "core/Geometry.h"
 #include "core/Text.h"
 
@@ -165,6 +166,17 @@ Renderer::Renderer(const Document& doc)
     : m_doc(doc)
 {
     registerCodecs();
+    syncColorProfile();
+}
+
+void Renderer::syncColorProfile()
+{
+    const ColorProfile p = m_doc.colorProfile();
+    if (p == m_profile && (m_cs != nullptr) == (p != ColorProfile::SRGB))
+        return;
+    m_profile = p;
+    m_cs = color::space(p);
+    clear();
 }
 
 void Renderer::setOptions(const Options& o)
@@ -213,7 +225,7 @@ skia::textlayout::Paragraph* Renderer::paragraph(NodeId id)
         float width = n.p.width;
         if (n.p.textStyle.autoResize == TextAutoResize::WidthAndHeight)
             width += 0.5f; // guard against wrapping from rounding
-        e.para = text::build(n.p, width, color);
+        e.para = text::build(n.p, width, color, m_profile);
         e.version = n.version;
     }
     return e.para.get();
@@ -226,6 +238,7 @@ sk_sp<SkPicture> Renderer::recordPage(NodeId page)
     for (NodeId c : pg.children)
         cull.join(m_doc.visualBounds(c));
     cull.outset(64, 64);
+    syncColorProfile();
     SkPictureRecorder rec;
     SkCanvas* c = rec.beginRecording(cull.isEmpty() ? SkRect::MakeWH(1, 1) : cull);
     drawChildren(c, pg);
@@ -432,7 +445,7 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
     if (paint.type == PaintType::Solid) {
         SkColor4f col = paint.color;
         col.fA *= a;
-        out->setColor4f(col);
+        out->setColor4f(col, m_cs.get());
         return true;
     }
     if (paint.type == PaintType::Image) {
@@ -496,18 +509,18 @@ bool Renderer::makePaint(const Paint& paint, const Props& p, float extraAlpha, S
     switch (paint.type) {
     case PaintType::LinearGradient: {
         SkPoint pts[2] = {{0, 0}, {1, 0}};
-        sh = SkGradientShader::MakeLinear(pts, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp, 0, &m);
+        sh = SkGradientShader::MakeLinear(pts, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp, 0, &m);
         break;
     }
     case PaintType::RadialGradient:
-        sh = SkGradientShader::MakeRadial({0, 0}, 1, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp, 0, &m);
+        sh = SkGradientShader::MakeRadial({0, 0}, 1, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp, 0, &m);
         break;
     case PaintType::AngularGradient:
-        sh = SkGradientShader::MakeSweep(0, 0, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp, 0, 360, 0, &m);
+        sh = SkGradientShader::MakeSweep(0, 0, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp, 0, 360, 0, &m);
         break;
     case PaintType::DiamondGradient: {
         SkPoint pts[2] = {{0, 0}, {1, 0}};
-        sk_sp<SkShader> grad = SkGradientShader::MakeLinear(pts, colors.data(), nullptr, pos.data(), count, SkTileMode::kClamp);
+        sk_sp<SkShader> grad = SkGradientShader::MakeLinear(pts, colors.data(), m_cs, pos.data(), count, SkTileMode::kClamp);
         SkRuntimeEffect::ChildPtr children[] = {grad};
         if (auto eff = diamondEffect())
             sh = eff->makeShader(nullptr, children, &m);
@@ -769,7 +782,7 @@ void Renderer::drawDropShadows(SkCanvas* c, const Node& n, const SkPath& path)
             c->clipPath(path, SkClipOp::kDifference, true);
         SkPaint sp;
         sp.setAntiAlias(true);
-        sp.setColor4f(e.color);
+        sp.setColor4f(e.color, m_cs.get());
         sp.setBlendMode(toSkBlend(e.blend));
         if (e.radius > 0)
             sp.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma(e.radius)));
@@ -805,7 +818,7 @@ void Renderer::drawInnerShadows(SkCanvas* c, const Node& n, const SkPath& path)
         c->clipPath(path, true);
         SkPaint sp;
         sp.setAntiAlias(true);
-        sp.setColor4f(e.color);
+        sp.setColor4f(e.color, m_cs.get());
         sp.setBlendMode(toSkBlend(e.blend));
         if (e.radius > 0)
             sp.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma(e.radius)));
@@ -822,7 +835,7 @@ void Renderer::drawGrids(SkCanvas* c, const Node& n)
         if (!g.visible)
             continue;
         SkPaint gp;
-        gp.setColor4f(g.color);
+        gp.setColor4f(g.color, m_cs.get());
         gp.setAntiAlias(false);
         const float w = n.p.width, h = n.p.height;
         if (g.kind == LayoutGrid::Kind::Grid) {
